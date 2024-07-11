@@ -1,5 +1,5 @@
 program testQuadTree
-  use m_types, only: fp, pp
+  use m_types, only: fp, pp, dp
   use m_quadtree, only: QuadTree, QuadTreeNode, splitNode, deleteSubTree
   use m_quadtree_io, only: createTree, printQuadTree
   use m_matrix_io, only: readMatrixFromFile
@@ -16,18 +16,18 @@ program testQuadTree
 
   character(len=100) :: filename
 
-  filename = "matrix6.txt"
+  filename = "matrix3.txt"
 
   call readMatrixFromFile(filename, matrix, nrows, ncols, status)
 
-  if (status == 0) then
-    print *, 'Matrix read from file:'
-    do i = 1, nrows
-      print *, (matrix(i, j), j = 1, ncols)
-    end do
-  else
-    print *, 'Failed to read the matrix from file.'
-  end if
+  ! if (status == 0) then
+  !   print *, 'Matrix read from file:'
+  !   do i = 1, nrows
+  !     print *, (matrix(i, j), j = 1, ncols)
+  !   end do
+  ! else
+  !   print *, 'Failed to read the matrix from file.'
+  ! end if
 
   !> basic QuadTree tests
 
@@ -57,8 +57,8 @@ program testQuadTree
   ! print *, "root x", tree%root%x
   ! print *, "root y", tree%root%y
 
-  call createTree(tree%root, matrix, 6, nrows, ncols, 1, 1)
-  call printQuadTree(tree, matrix)
+  call createTree(tree%root, matrix, 6, real(nrows, dp), real(ncols, dp), 1._dp, 1._dp)
+  ! call printQuadTree(tree, matrix)
 
 
 end program testQuadTree

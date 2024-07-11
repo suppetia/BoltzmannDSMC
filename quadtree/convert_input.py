@@ -30,6 +30,8 @@ if __name__ == "__main__":
     process_image(image_path, "matrix5.txt")
     image_path = 'data/circle_32_64.png'
     process_image(image_path, "matrix6.txt")
+    image_path = 'data/circle_30_60.png'
+    process_image(image_path, "matrix7.txt")
 
 
 

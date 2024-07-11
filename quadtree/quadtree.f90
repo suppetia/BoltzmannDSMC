@@ -1,5 +1,5 @@
 module m_quadtree
-  use m_types, only: fp, pp, i4
+  use m_types, only: fp, pp, i4, dp
   implicit none
 
   type :: QuadTreeNode
@@ -7,8 +7,8 @@ module m_quadtree
 
     !> it should be possible to calculate this on the fly
     !> but I'm not capable of wrapping my head around this
-    integer(i4) :: x, y
-    integer(i4) :: width, height
+    real(dp) :: x, y
+    real(dp) :: width, height
 
     type(QuadTreeNode), allocatable, dimension(:) :: children
 

@@ -1,6 +1,6 @@
 module m_quadtree_io
   use m_quadtree, only: QuadTreeNode, QuadTree, splitNode
-  use m_types, only: pp
+  use m_types, only: pp, dp
   implicit none
 
   type :: NodeStack
@@ -62,15 +62,16 @@ contains
   !> create a QuadTree from a matrix
   !> each node corresponds to a cell
   !> a cell is split if a value different from 0 is contained and maxDepth was not reached
-  recursive subroutine createTree(root, matrix, maxDepth, height, width, rowOffset, colOffset)
+  recursive subroutine createTree(root, matrix, maxDepth, height, width, y, x)
     implicit none
     type(QuadTreeNode), intent(inout) :: root
     integer, intent(in) :: maxDepth
     integer(pp), allocatable, intent(in) :: matrix(:,:)
-    integer, intent(in) :: width, height, rowOffset, colOffset
+    real(dp), intent(in) :: width, height, x, y
 
+    integer :: rowOffset, colOffset
     ! integer :: i, j
-    integer :: newWidth, newHeight
+    real(dp) :: newWidth, newHeight
 
     if (.not.ALLOCATED(matrix)) then
       print *, "invalid matrix"
@@ -81,19 +82,28 @@ contains
       return
     end if
 
+
+    rowOffset = ceiling(y)
+    colOffset = ceiling(x)
+    newWidth = floor(width)
+    newHeight = floor(height)
+
+    ! print *, height, floor(height)
+    ! print *, y, ceiling(y)
+
     !> if all matrix elements in this cell are > 0, the cell won't be split
-    if (all(matrix(rowOffset:rowOffset + height - 1, colOffset: colOffset + width - 1) > 0)) then
+    if (all(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)) then
       return
 
     !> if a matrix element in this cell is /= 0 split the cell
-    else if (any(matrix(rowOffset:rowOffset + height - 1, colOffset: colOffset + width - 1) > 0)) then
+    else if (any(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)) then
       call splitNode(root)
       newWidth = width / 2
       newHeight = height / 2
-      call createTree(root%children(1), matrix, maxDepth-1, newHeight, newWidth, rowOffset, colOffset)
-      call createTree(root%children(2), matrix, maxDepth-1, newHeight, newWidth, rowOffset, colOffset+newWidth)
-      call createTree(root%children(3), matrix, maxDepth-1, newHeight, newWidth, rowOffset+newHeight, colOffset)
-      call createTree(root%children(4), matrix, maxDepth-1, newHeight, newWidth, rowOffset+newHeight, colOffset+newWidth)
+      call createTree(root%children(1), matrix, maxDepth-1, newHeight, newWidth, y, x)
+      call createTree(root%children(2), matrix, maxDepth-1, newHeight, newWidth, y, x+newWidth)
+      call createTree(root%children(3), matrix, maxDepth-1, newHeight, newWidth, y+newHeight, x)
+      call createTree(root%children(4), matrix, maxDepth-1, newHeight, newWidth, y+newHeight, x+newWidth)
     end if
 
   end subroutine createTree
@@ -116,6 +126,7 @@ contains
   end subroutine findChildren
 
 
+  !> plotting does not work accordingly with fractional height/width
   subroutine printQuadTree(tree, matrix)
     type(QuadTree), intent(in) :: tree
     integer(pp), allocatable, intent(in) :: matrix(:,:)
@@ -139,12 +150,12 @@ contains
     do while (childrenStack%topIndex > 0)
       call pop(childrenStack, n)
 
-      print *, n%x, n%y, n%width, n%height
+      ! print *, n%x, n%y, n%width, n%height
 
       !> set upper border
-      gridMatrix(n%y, n%x : n%x+n%width-1, 1) = .true.
+      gridMatrix(ceiling(n%y), ceiling(n%x) : ceiling(n%x)+floor(n%width)-1, 1) = .true.
       !> set left border
-      gridMatrix(n%y : n%y+n%height-1, n%x, 2) = .true.
+      gridMatrix(ceiling(n%y) : ceiling(n%y)+floor(n%height)-1, ceiling(n%x), 2) = .true.
     end do
 
     !> display the quadtree structure around the data matrix
