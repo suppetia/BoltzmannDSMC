@@ -1,13 +1,13 @@
 module m_quadtree_io
-  use m_quadtree, only: QuadTreeNode, QuadTree, splitNode
-  use m_types, only: pp, dp
+  use m_quadtree, only: QuadTreeNode, QuadTree, splitNode, initializeQuadTreeNode
+  use m_types, only: pp, dp, i4
   implicit none
 
   type :: NodeStack
     integer :: stackSize
 
     integer :: topIndex = 0
-    type(QuadTreeNode), allocatable :: elements(:)
+    type(QuadTreeNode), pointer :: elements(:)
 
   end type NodeStack
 
@@ -62,10 +62,10 @@ contains
   !> create a QuadTree from a matrix
   !> each node corresponds to a cell
   !> a cell is split if a value different from 0 is contained and maxDepth was not reached
-  recursive subroutine createTree(root, matrix, maxDepth, height, width, y, x)
+  recursive subroutine createTree(root, matrix, maxDepth, maxElementsPerCell, height, width, y, x)
     implicit none
     type(QuadTreeNode), intent(inout) :: root
-    integer, intent(in) :: maxDepth
+    integer, intent(in) :: maxDepth, maxElementsPerCell
     integer(pp), allocatable, intent(in) :: matrix(:,:)
     real(dp), intent(in) :: width, height, x, y
 
@@ -79,20 +79,26 @@ contains
     end if
 
     if (maxDepth == 1) then
+      call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
       return
     end if
 
 
-    rowOffset = ceiling(y)
-    colOffset = ceiling(x)
+    !> +1 since arrays start with 1
+    rowOffset = ceiling(y)+1
+    colOffset = ceiling(x)+1
     newWidth = floor(width)
     newHeight = floor(height)
 
     ! print *, height, floor(height)
     ! print *, y, ceiling(y)
 
+    ! print *, all(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)
+    ! print *, any(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)
+
     !> if all matrix elements in this cell are > 0, the cell won't be split
     if (all(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)) then
+      call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
       return
 
     !> if a matrix element in this cell is /= 0 split the cell
@@ -100,30 +106,72 @@ contains
       call splitNode(root)
       newWidth = width / 2
       newHeight = height / 2
-      call createTree(root%children(1), matrix, maxDepth-1, newHeight, newWidth, y, x)
-      call createTree(root%children(2), matrix, maxDepth-1, newHeight, newWidth, y, x+newWidth)
-      call createTree(root%children(3), matrix, maxDepth-1, newHeight, newWidth, y+newHeight, x)
-      call createTree(root%children(4), matrix, maxDepth-1, newHeight, newWidth, y+newHeight, x+newWidth)
+      call createTree(root%children(1), matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x)
+      call createTree(root%children(2), matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x+newWidth)
+      call createTree(root%children(3), matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x)
+      call createTree(root%children(4), matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x+newWidth)
+    else
+      call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
     end if
 
   end subroutine createTree
 
+  subroutine buildTreeFromMatrix(tree, matrix)
+    implicit none
 
-  recursive subroutine findChildren(root, stack)
+    type(QuadTree), intent(inout) :: tree
+    integer(pp), allocatable, dimension(:,:), intent(in) :: matrix
+
+    call createTree(tree%root, matrix, tree%maxDepth, tree%maxElementsPerCell,&
+      real(size(matrix, 1), dp), real(size(matrix, 2), dp), 0._dp, 0._dp)
+
+  end subroutine buildTreeFromMatrix
+
+
+  recursive subroutine findLeaves(root, stack)
     implicit none
     type(QuadTreeNode), intent(in) :: root
     type(NodeStack), intent(inout) :: stack
 
     integer :: i
 
-    if (root%value < 0) then
+    if (root%numberOfElements < 0) then
       do i=1,4
-        call findChildren(root%children(i), stack)
+        call findLeaves(root%children(i), stack)
       end do
     else
       call push(stack, root)
     end if
-  end subroutine findChildren
+  end subroutine findLeaves
+
+  subroutine getLeafCells(tree, arrLeaves, numLeaves)
+    implicit none
+    type(QuadTree), intent(in) :: tree
+    real(dp), dimension(:,:), intent(inout) :: arrLeaves
+    integer(i4), intent(out) :: numLeaves
+
+    type(QuadTreeNode) :: n
+    type(NodeStack) :: stack
+
+    integer(i4) :: i
+
+    call initializeStack(stack, size(arrLeaves, 1))
+
+    !> find all leaf nodes and store them in the stack
+    call findLeaves(tree%root, stack)
+
+    numLeaves = stack%topIndex
+
+    do i = 1, numLeaves
+      call pop(stack, n)
+      arrLeaves(i, 1:4) = [n%x, n%y, n%width, n%height]
+      arrLeaves(i, 5:) = n%elements(:)
+    end do
+
+    call deleteStack(stack)
+
+  end subroutine getLeafCells
+
 
 
   !> plotting does not work accordingly with fractional height/width
@@ -140,7 +188,7 @@ contains
 
     call initializeStack(childrenStack, 1000) !> use a reasonable heuristic here
 
-    call findChildren(tree%root, childrenStack)
+    call findLeaves(tree%root, childrenStack)
 
     allocate(gridMatrix(size(matrix, 1), size(matrix, 2), 2))
 

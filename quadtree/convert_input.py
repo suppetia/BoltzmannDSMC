@@ -22,16 +22,18 @@ def process_image(filename, export_path):
 
 
 if __name__ == "__main__":
-    image_path = 'data/circle_1024.png'
-    process_image(image_path, "matrix3.txt")
-    image_path = 'data/circle_256.png'
-    process_image(image_path, "matrix4.txt")
-    image_path = 'data/circle_64_128.png'
-    process_image(image_path, "matrix5.txt")
-    image_path = 'data/circle_32_64.png'
-    process_image(image_path, "matrix6.txt")
-    image_path = 'data/circle_30_60.png'
-    process_image(image_path, "matrix7.txt")
+    # image_path = 'data/circle_1024.png'
+    # process_image(image_path, "matrix3.txt")
+    # image_path = 'data/circle_256.png'
+    # process_image(image_path, "matrix4.txt")
+    # image_path = 'data/circle_64_128.png'
+    # process_image(image_path, "matrix5.txt")
+    # image_path = 'data/circle_32_64.png'
+    # process_image(image_path, "matrix6.txt")
+    # image_path = 'data/circle_30_60.png'
+    # process_image(image_path, "matrix7.txt")
+    image_path = 'data/test_8.png'
+    process_image(image_path, "matrix8.txt")
 
 
 
