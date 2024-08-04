@@ -6,15 +6,19 @@ JULIA_INTERFACE=quadtree_io_jl
 
 OBJECTS=types.o quadtree.o quadtree_io.o matrix_io.o $(MAIN).o 
 
+HDF5_LIBDIR="/usr/lib/x86_64-linux-gnu/hdf5/serial"
+HDF5_INCLUDEDIR="/usr/include/hdf5/serial"
+
+
 # Fortran compiler
 FC=gfortran
 # Fortran compiler flags
-CFLAGS= -fPIC
+CFLAGS= -fPIC -I$(HDF5_INCLUDEDIR)
 
 # Linker
 LD=gfortran
 # Linker flags
-LDFLAGS=
+LDFLAGS= -L$(HDF5_LIBDIR) -lhdf5 -lhdf5_fortran
 
 # Python installation
 PY=$(shell which python3)

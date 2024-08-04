@@ -3,12 +3,22 @@ module m_quadtree_io
   use m_types, only: pp, dp, i4
   implicit none
 
+  ! type :: NodeStack
+  !   integer :: stackSize
+  !
+  !   integer :: topIndex = 0
+  !   type(QuadTreeNode), pointer :: elements(:)
+  !
+  ! end type NodeStack
+
+  type :: StackNode
+    type(QuadTreeNode), pointer :: data
+    type(StackNode), pointer :: next => null()
+  end type StackNode
+
   type :: NodeStack
-    integer :: stackSize
-
     integer :: topIndex = 0
-    type(QuadTreeNode), pointer :: elements(:)
-
+    type(StackNode), pointer :: top => null()
   end type NodeStack
 
 contains
@@ -17,8 +27,10 @@ contains
     type(NodeStack), intent(inout) :: stack
     integer, intent(in) :: stackSize
 
-    allocate(stack%elements(stackSize))
-    stack%stackSize = stackSize
+    nullify(stack%top)
+
+    ! allocate(stack%elements(stackSize))
+    ! stack%stackSize = stackSize
     stack%topIndex = 0
 
   end subroutine initializeStack
@@ -26,34 +38,54 @@ contains
   subroutine deleteStack(stack)
     type(NodeStack), intent(inout) :: stack
 
-    deallocate(stack%elements)
-    stack%stackSize = 0
-    stack%topIndex = 0
+    nullify(stack%top)
+
+    ! deallocate(stack%elements)
+    ! stack%stackSize = 0
+    ! stack%topIndex = 0
   end subroutine deleteStack
 
   subroutine push(stack, newValue)
     type(NodeStack), intent(inout) :: stack
-    type(QuadTreeNode), intent(in) :: newValue
+    type(QuadTreeNode), pointer, intent(in) :: newValue
+    type(StackNode), pointer :: newNode
 
-    if (stack%topIndex >= stack%stackSize) then
-      print *, "Stack full"
-      return
-    end if
+    allocate(newNode)
+    newNode%data => newValue
+    if (associated(stack%top)) then
+      newNode%next => stack%top
+    end if 
+    stack%top => newNode
+
+    ! if (stack%topIndex >= stack%stackSize) then
+    !   print *, "Stack full"
+    !   return
+    ! end if
 
     stack%topIndex = stack%topIndex + 1
-    stack%elements(stack%topIndex) = newValue
+    ! stack%elements(stack%topIndex) = newValue
   end subroutine push
 
   subroutine pop(stack, value)
     type(NodeStack), intent(inout) :: stack
-    type(QuadTreeNode), intent(out) :: value
+    type(QuadTreeNode), pointer, intent(out) :: value
+    type(StackNode), pointer :: tempNode
 
-    if (stack%topIndex <= 0) then
-      print *, "Stack empty"
-      return
+    if (associated(stack%top)) then
+      value => stack%top%data
+      tempNode => stack%top
+      stack%top => stack%top%next
+      deallocate(tempNode)
+    else
+      nullify(value)
     end if
 
-    value = stack%elements(stack%topIndex)
+    ! if (stack%topIndex <= 0) then
+    !   print *, "Stack empty"
+    !   return
+    ! end if
+
+    ! value => stack%elements(stack%topIndex)
     stack%topIndex = stack%topIndex - 1
 
   end subroutine pop
@@ -64,10 +96,11 @@ contains
   !> a cell is split if a value different from 0 is contained and maxDepth was not reached
   recursive subroutine createTree(root, matrix, maxDepth, maxElementsPerCell, height, width, y, x)
     implicit none
-    type(QuadTreeNode), intent(inout) :: root
+    type(QuadTreeNode), pointer, intent(inout) :: root
     integer, intent(in) :: maxDepth, maxElementsPerCell
     integer(pp), allocatable, intent(in) :: matrix(:,:)
     real(dp), intent(in) :: width, height, x, y
+    type(QuadTreeNode), pointer :: childNode
 
     integer :: rowOffset, colOffset
     ! integer :: i, j
@@ -80,6 +113,7 @@ contains
 
     if (maxDepth == 1) then
       call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
+      root%isCollapsable = .false.
       return
     end if
 
@@ -106,12 +140,17 @@ contains
       call splitNode(root)
       newWidth = width / 2
       newHeight = height / 2
-      call createTree(root%children(1), matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x)
-      call createTree(root%children(2), matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x+newWidth)
-      call createTree(root%children(3), matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x)
-      call createTree(root%children(4), matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x+newWidth)
+      childNode => root%children(1)
+      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x)
+      childNode => root%children(2)
+      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x+newWidth)
+      childNode => root%children(3)
+      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x)
+      childNode => root%children(4)
+      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x+newWidth)
     else
       call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
+      root%isCollapsable = .false.
     end if
 
   end subroutine createTree
@@ -130,7 +169,7 @@ contains
 
   recursive subroutine findLeaves(root, stack)
     implicit none
-    type(QuadTreeNode), intent(in) :: root
+    type(QuadTreeNode), pointer, intent(in) :: root
     type(NodeStack), intent(inout) :: stack
 
     integer :: i
@@ -140,6 +179,9 @@ contains
         call findLeaves(root%children(i), stack)
       end do
     else
+      ! if (ASSOCIATED(stack%top)) then
+      ! print *, stack%top%data%numberOfElements
+      ! end if
       call push(stack, root)
     end if
   end subroutine findLeaves
@@ -147,10 +189,10 @@ contains
   subroutine getLeafCells(tree, arrLeaves, numLeaves)
     implicit none
     type(QuadTree), intent(in) :: tree
-    real(dp), dimension(:,:), intent(inout) :: arrLeaves
+    real(dp), dimension(:,:), allocatable, intent(out) :: arrLeaves
     integer(i4), intent(out) :: numLeaves
 
-    type(QuadTreeNode) :: n
+    type(QuadTreeNode), pointer :: n
     type(NodeStack) :: stack
 
     integer(i4) :: i
@@ -162,10 +204,13 @@ contains
 
     numLeaves = stack%topIndex
 
+    !> retrieve the information how many elements per cell are stored and allocate the cellMatrix
+    allocate(arrLeaves(numLeaves, 5+4*tree%maxElementsPerCell))
+
     do i = 1, numLeaves
       call pop(stack, n)
-      arrLeaves(i, 1:4) = [n%x, n%y, n%width, n%height]
-      arrLeaves(i, 5:) = n%elements(:)
+      arrLeaves(i, 1:5) = [n%x, n%y, n%width, n%height, real(n%numberOfElements, dp)]
+      arrLeaves(i, 6:) = n%elements(:)
     end do
 
     call deleteStack(stack)
@@ -183,7 +228,7 @@ contains
     logical, allocatable :: gridMatrix(:, :, :)
     integer :: i,j
 
-    type(QuadTreeNode) :: n
+    type(QuadTreeNode), pointer :: n
     type(NodeStack) :: childrenStack
 
     call initializeStack(childrenStack, 1000) !> use a reasonable heuristic here

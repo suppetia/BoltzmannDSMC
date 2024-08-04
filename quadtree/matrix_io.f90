@@ -41,11 +41,12 @@ contains
     status = 0
   end subroutine readIntMatrixFromFile
 
-  subroutine writeRealMatrixToFile(filename, matrix, nrows, ncols, status)
+  subroutine writeRealMatrixToFile(filename, matrix, nrows, ncols, error)
+    implicit none
     character(len=*), intent(in) :: filename
     real(dp), allocatable, intent(in) :: matrix(:,:)
     integer, intent(in) :: nrows, ncols
-    integer, intent(out) :: status
+    integer, intent(out) :: error
 
     integer :: i, j
     integer :: io_status
@@ -56,7 +57,7 @@ contains
     open(unit=io, file=filename, status='replace', action='write', iostat=io_status)
     if (io_status /= 0) then
       print *, 'Error opening file: ', trim(filename)
-      status = io_status
+      error = io_status
       return
     end if
 
@@ -76,8 +77,51 @@ contains
     close(io)
 
     !> Set the status to indicate success
-    status = 0
+    error = 0
 
   end subroutine writeRealMatrixToFile
+
+  subroutine writeRealMatrixToH5(filename, matrix, nrows, ncols, error)
+    use hdf5
+    implicit none
+    character(len=*), intent(in) :: filename
+
+    real(dp), dimension(:,:), intent(in) :: matrix
+    integer, intent(in) :: nrows, ncols
+    integer, intent(out) :: error
+
+    character(len=*), parameter :: datasetName = "gridCells"
+    integer(hid_t) :: fileID !> file identifier
+    integer(hid_t) :: dspaceID !> dataspace identifier
+    integer(hid_t) :: dsetID !> dataset identifier
+
+    logical :: datasetExists
+
+    integer(hsize_t), dimension(2) :: dataDims
+
+    dataDims(:) = [nrows, ncols]
+
+    !> initialize Fortran interface
+    call h5open_f(error)
+    !> open the file and overwrite existing files
+    call h5fcreate_f(filename, H5F_ACC_TRUNC_F, fileID, error)
+
+
+    !> create the dataspace
+    call h5screate_simple_f(2, dataDims, dspaceID, error)
+
+    !> create the dataset with default properties
+    call h5dcreate_f(fileID, datasetName, H5T_NATIVE_DOUBLE, dspaceID, dsetID, error)
+
+    !> write the data from the matrix to the dataset
+    call h5dwrite_f(dsetID, H5T_NATIVE_DOUBLE, matrix, dataDims, error)
+
+
+    !> close all accesses
+    call h5dclose_f(dsetID, error)
+    call h5sclose_f(dspaceID, error)
+    call h5fclose_f(fileID, error)
+    call h5close_f(error)
+  end subroutine writeRealMatrixToH5
 
 end module m_matrix_io

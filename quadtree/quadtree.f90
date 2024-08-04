@@ -3,15 +3,19 @@ module m_quadtree
   implicit none
 
   type :: QuadTreeNode
-    integer(pp) :: numberOfElements = 0
-    real(dp), allocatable, dimension(:) :: elements
+    integer(pp) :: numberOfElements
+    real(dp), pointer, dimension(:) :: elements => null()
 
     !> it should be possible to calculate this on the fly
     !> but I'm not capable of wrapping my head around this
     real(dp) :: x, y
     real(dp) :: width, height
 
-    type(QuadTreeNode), allocatable, dimension(:) :: children
+    !> whether a grid cell is allowed to be merged
+    !> false if it is given from the structure
+    logical :: isCollapsable = .true.
+
+    type(QuadTreeNode), pointer, dimension(:) :: children => null()
 
   end type QuadTreeNode
 
@@ -19,8 +23,7 @@ module m_quadtree
     integer :: maxDepth
     integer :: maxElementsPerCell = 1
 
-    type(QuadTreeNode) :: root = QuadTreeNode(x=0, y=0, width=0, height=0)
-
+    type(QuadTreeNode), pointer :: root
   end type QuadTree
 
 contains
@@ -41,6 +44,8 @@ contains
     allocate(node%elements(4*maxElements))
     node%elements(:) = -1
 
+    nullify(node%children)
+
   end subroutine initializeQuadTreeNode
     
 
@@ -53,6 +58,9 @@ contains
   
     type(QuadTree), intent(out) :: tree
 
+    allocate(tree%root)
+
+
     tree%maxDepth = maxDepth
     tree%maxElementsPerCell = maxElementsPerCell
     call initializeQuadTreeNode(tree%root, maxElementsPerCell, 0._dp, 0._dp, width, height)
@@ -61,7 +69,7 @@ contains
   !> add children to a node
   subroutine splitNode(node)
     implicit none
-    type(QuadTreeNode), intent(inout) :: node
+    type(QuadTreeNode), pointer, intent(inout) :: node
 
     real(dp) :: newWidth, newHeight
     integer :: i, j
@@ -109,7 +117,8 @@ contains
   !> merge the children making node a leaf
   subroutine mergeChildren(node)
     implicit none
-    type(QuadTreeNode), intent(inout) :: node
+    type(QuadTreeNode), pointer, intent(inout) :: node
+    type(QuadTreeNode), pointer :: childNode
 
     integer :: i,j, idx
 
@@ -120,11 +129,12 @@ contains
     idx = 0
 
     do i=1,4
-      do j=0,node%children(i)%numberOfElements-1
-        node%elements(4*idx+1:4*(idx+1)) = node%children(i)%elements(4*j+1:4*(j+1))
-        deallocate(node%elements)
+      childNode => node%children(i)
+      do j=0,childNode%numberOfElements-1
+        node%elements(4*idx+1:4*(idx+1)) = childNode%elements(4*j+1:4*(j+1))
         idx = idx+1
       end do
+      deallocate(childNode%elements)
     end do
     node%numberOfElements = idx
     deallocate(node%children)
@@ -133,9 +143,15 @@ contains
 
   recursive subroutine removeUnnecessaryNodes(node)
     implicit none
-    type(QuadTreeNode), intent(inout) :: node
+    type(QuadTreeNode), pointer, intent(inout) :: node
+
+    type(QuadTreeNode), pointer :: childNode
 
     integer :: i,numElements
+
+    logical :: isMergeable
+
+    isMergeable = .true.
 
     if (node%numberOfElements >= 0) then
       return
@@ -143,36 +159,54 @@ contains
 
     numElements = 0
     do i=1,4
-      call removeUnnecessaryNodes(node%children(i))
-      if (node%children(i)%numberOfElements < 0) then
-        return
+      childNode => node%children(i)
+      call removeUnnecessaryNodes(childNode)
+      if (.not.childNode%isCollapsable .or. childNode%numberOfElements < 0) then
+        isMergeable = .false.
+      else 
+        numElements = numElements + childNode%numberOfElements
       end if
-      numElements = numElements + node%children(i)%numberOfElements
     end do
-    if (numElements <= size(node%children(1)%elements,1)/4) then
+    if (isMergeable .and. numElements <= size(node%children(1)%elements,1)/4) then
       call mergeChildren(node)
     end if
   end subroutine removeUnnecessaryNodes
+
+  subroutine deleteTree(tree)
+    implicit none
+    type(QuadTree), intent(inout) :: tree
+
+    call deleteSubTree(tree%root)
+
+    deallocate(tree%root)
+
+  end subroutine deleteTree
 
   !> delete a QuadTree by freeing all memory
   recursive subroutine deleteSubTree(node)
     implicit none
     type(QuadTreeNode), intent(inout) :: node
     integer :: i
-    
-    if (allocated(node%children)) then
+   
+    if (associated(node%children)) then
       do i = 1,4
         call deleteSubTree(node%children(i))
       end do
-      deallocate(node%children)
+      if (associated(node%children)) then
+        deallocate(node%children)
+      end if
+      if (associated(node%elements)) then
+        deallocate(node%elements)
+      end if
     end if
   end subroutine deleteSubTree
 
   recursive subroutine insertElement(node, element)
     implicit none
-    type(QuadTreeNode), intent(inout) :: node
+    type(QuadTreeNode), pointer, intent(inout) :: node
     real(dp), dimension(4), intent(in) :: element
     integer :: i
+    type(QuadTreeNode), pointer :: nextNode => null()
 
     if (node%numberOfElements >= 0) then
       if (node%numberOfElements == size(node%elements, 1)/4) then
@@ -194,7 +228,10 @@ contains
       if (element(2) >= node%y + node%height/2) then
         i = i + 2
       end if
-      call insertElement(node%children(i), element)
+      
+      nextNode => node%children(i)
+
+      call insertElement(nextNode, element)
     end if
 
   end subroutine insertElement
@@ -241,7 +278,7 @@ contains
 
   subroutine removeElementFromNode(node, i)
     implicit none
-    type(QuadTreeNode), intent(inout) :: node
+    type(QuadTreeNode), pointer :: node
     integer, intent(in) :: i
 
     integer :: j
@@ -257,6 +294,7 @@ contains
     !> remove the last element
     node%elements(4*(j-1)+1:4*j) = -1
     node%numberOfElements = j - 1
+    ! print *, node%numberOfElements
 
   end subroutine removeElementFromNode
 
