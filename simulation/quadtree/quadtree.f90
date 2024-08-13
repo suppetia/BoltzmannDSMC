@@ -4,7 +4,6 @@ module m_quadtree
 
   type :: QuadTreeNode
     integer(pp) :: numberOfElements
-    real(dp), pointer, dimension(:) :: elements => null()
 
     !> it should be possible to calculate this on the fly
     !> but I'm not capable of wrapping my head around this
@@ -15,6 +14,7 @@ module m_quadtree
     !> false if it is given from the structure
     logical :: isCollapsable = .true.
 
+    real(dp), pointer, dimension(:) :: elements => null()
     type(QuadTreeNode), pointer, dimension(:) :: children => null()
 
   end type QuadTreeNode
@@ -28,25 +28,31 @@ module m_quadtree
 
 contains
 
-  !> initialize a new QuadTreeNode
-  subroutine initializeQuadTreeNode(node, maxElements, x, y, width, height)
-    implicit none
-    type(QuadTreeNode), intent(out) :: node
-    integer, intent(in) :: maxElements
-    real(dp), intent(in) :: x, y, width, height
-
-    node%x = x
-    node%y = y
-    node%width = width
-    node%height = height
-
-    node%numberOfElements = 0
-    allocate(node%elements(4*maxElements))
-    node%elements(:) = -1
-
-    nullify(node%children)
-
-  end subroutine initializeQuadTreeNode
+  ! !> initialize a new QuadTreeNode
+  ! subroutine initializeQuadTreeNode(node, maxElements, x, y, width, height)
+  !   implicit none
+  !   type(QuadTreeNode), intent(inout) :: node
+  !   integer, intent(in) :: maxElements
+  !   real(dp), intent(in) :: x, y, width, height
+  !
+  !   ! print *, associated(node)
+  !   ! allocate(node)
+  !   print *, associated(node)
+  !   print *, x, y
+  !
+  !   print *, node%x
+  !   node%x = x
+  !   node%y = y
+  !   node%width = width
+  !   node%height = height
+  !
+  !   node%numberOfElements = 0
+  !   allocate(node%elements(4*maxElements))
+  !   node%elements(:) = -1
+  !
+  !   nullify(node%children)
+  !
+  ! end subroutine initializeQuadTreeNode
     
 
   !> initialize a new QuadTree
@@ -57,13 +63,21 @@ contains
     real(dp), intent(in) :: width, height
   
     type(QuadTree), intent(out) :: tree
-
+  
     allocate(tree%root)
-
-
+    tree%root%x = 0._dp
+    tree%root%y = 0._dp
+    tree%root%width = width
+    tree%root%height = height
+    tree%root%numberOfElements = 0
+    allocate(tree%root%elements(4*maxElementsPerCell))
+    tree%root%elements(:) = -1
+    nullify(tree%root%children)
+  
+  
     tree%maxDepth = maxDepth
     tree%maxElementsPerCell = maxElementsPerCell
-    call initializeQuadTreeNode(tree%root, maxElementsPerCell, 0._dp, 0._dp, width, height)
+    ! call initializeQuadTreeNode(tree%root, maxElementsPerCell, 0._dp, 0._dp, width, height)
   end subroutine initializeQuadTree
 
   !> add children to a node
@@ -81,10 +95,27 @@ contains
     newWidth = node%width / 2
     newHeight = node%height / 2
 
-    call initializeQuadTreeNode(node%children(1), size(node%elements,1)/4, node%x, node%y, newWidth, newHeight)
-    call initializeQuadTreeNode(node%children(2), size(node%elements,1)/4, node%x+newWidth, node%y, newWidth, newHeight)
-    call initializeQuadTreeNode(node%children(3), size(node%elements,1)/4, node%x, node%y+newHeight, newWidth, newHeight)
-    call initializeQuadTreeNode(node%children(4), size(node%elements,1)/4, node%x+newWidth, node%y+newHeight, newWidth, newHeight)
+    do i = 1,4
+      node%children(i)%numberOfElements = 0
+      allocate(node%children(i)%elements(size(node%elements, 1)))
+      node%children(i)%elements(:) = -1
+      nullify(node%children(i)%children)
+      node%children(i)%x = node%x
+      node%children(i)%y = node%y
+      node%children(i)%width = newWidth
+      node%children(i)%height = newHeight
+    end do
+    node%children(2)%x = node%x + newWidth
+    node%children(3)%y = node%y + newHeight
+    node%children(4)%x = node%x + newWidth
+    node%children(4)%y = node%y + newHeight
+
+
+
+    ! call initializeQuadTreeNode(node%children(i), size(node%elements,1)/4, node%x, node%y, newWidth, newHeight)
+    ! call initializeQuadTreeNode(childNode, size(node%elements,1)/4, node%x+newWidth, node%y, newWidth, newHeight)
+    ! call initializeQuadTreeNode(childNode, size(node%elements,1)/4, node%x, node%y+newHeight, newWidth, newHeight)
+    ! call initializeQuadTreeNode(childNode, size(node%elements,1)/4, node%x+newWidth, node%y+newHeight, newWidth, newHeight)
 
     do i = 0,node%numberOfElements-1
       !> find the child where to sort the element in
@@ -111,6 +142,7 @@ contains
     !> mark that the node is no leave
     node%numberOfElements= -1
     deallocate(node%elements)
+    node%elements => null()
 
   end subroutine splitNode
 
@@ -135,6 +167,7 @@ contains
         idx = idx+1
       end do
       deallocate(childNode%elements)
+      ! deallocate(childNode)
     end do
     node%numberOfElements = idx
     deallocate(node%children)
@@ -185,20 +218,24 @@ contains
   !> delete a QuadTree by freeing all memory
   recursive subroutine deleteSubTree(node)
     implicit none
-    type(QuadTreeNode), intent(inout) :: node
+    ! type(QuadTreeNode), intent(inout) :: node
+    type(QuadTreeNode), pointer, intent(inout) :: node
+    type(QuadTreeNode), pointer :: childNode
     integer :: i
    
     if (associated(node%children)) then
       do i = 1,4
-        call deleteSubTree(node%children(i))
+        childNode => node%children(i)
+        call deleteSubTree(childNode)
+        ! call deleteSubTree(node%children(i))
       end do
-      if (associated(node%children)) then
-        deallocate(node%children)
-      end if
-      if (associated(node%elements)) then
-        deallocate(node%elements)
-      end if
+      deallocate(node%children)
     end if
+    ! print *, associated(node%elements)
+    if (associated(node%elements)) then
+      deallocate(node%elements)
+    end if
+    ! deallocate(node)
   end subroutine deleteSubTree
 
   recursive subroutine insertElement(node, element)

@@ -1,5 +1,5 @@
 module m_quadtree_io
-  use m_quadtree, only: QuadTreeNode, QuadTree, splitNode, initializeQuadTreeNode
+  use m_quadtree, only: QuadTreeNode, QuadTree, splitNode!, initializeQuadTreeNode
   use m_types, only: pp, dp, i4
   implicit none
 
@@ -10,6 +10,7 @@ module m_quadtree_io
 
   type :: NodeStack
     integer :: topIndex = 0
+    type(StackNode), pointer :: first => null()
     type(StackNode), pointer :: top => null()
   end type NodeStack
 
@@ -18,13 +19,26 @@ contains
   subroutine initializeStack(stack)
     type(NodeStack), intent(inout) :: stack
 
+    nullify(stack%first)
     nullify(stack%top)
     stack%topIndex = 0
   end subroutine initializeStack
 
   subroutine deleteStack(stack)
     type(NodeStack), intent(inout) :: stack
+    integer :: i
+    type(StackNode), pointer :: n1, n2
 
+    if (associated(stack%first)) then
+      n1 => stack%first
+      do i=1, stack%topIndex
+        n2 => n1%next
+        deallocate(n1)
+        n1 => n2
+      end do
+    end if
+
+    nullify(stack%first)
     nullify(stack%top)
   end subroutine deleteStack
 
@@ -38,6 +52,9 @@ contains
     if (associated(stack%top)) then
       newNode%next => stack%top
     end if 
+    if (.not.associated(stack%first)) then
+      stack%first => newNode
+    end if
     stack%top => newNode
     stack%topIndex = stack%topIndex + 1
   end subroutine push
@@ -80,7 +97,15 @@ contains
     end if
 
     if (maxDepth == 1) then
-      call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
+      ! call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
+      allocate(root%elements(4*maxElementsPerCell))
+      root%elements(:) = -1
+      root%numberOfElements = 0
+      root%x = x
+      root%y = y
+      root%width = width
+      root%height = height
+      nullify(root%children)
       root%isCollapsable = .false.
       return
     end if
@@ -100,12 +125,21 @@ contains
 
     !> if all matrix elements in this cell are > 0, the cell won't be split
     if (all(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)) then
-      call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
+      ! call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
+      allocate(root%elements(4*maxElementsPerCell))
+      root%elements(:) = -1
+      root%numberOfElements = 0
+      root%x = x
+      root%y = y
+      root%width = width
+      root%height = height
+      nullify(root%children)
       return
 
     !> if a matrix element in this cell is /= 0 split the cell
     else if (any(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)) then
       call splitNode(root)
+
       newWidth = width / 2
       newHeight = height / 2
       childNode => root%children(1)
@@ -117,7 +151,15 @@ contains
       childNode => root%children(4)
       call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x+newWidth)
     else
-      call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
+      ! call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
+      allocate(root%elements(4*maxElementsPerCell))
+      root%elements(:) = -1
+      root%numberOfElements = 0
+      root%x = x
+      root%y = y
+      root%width = width
+      root%height = height
+      nullify(root%children)
       root%isCollapsable = .false.
     end if
 
@@ -126,7 +168,7 @@ contains
   subroutine buildTreeFromMatrix(tree, matrix)
     implicit none
 
-    type(QuadTree), intent(inout) :: tree
+    type(QuadTree), pointer, intent(inout) :: tree
     integer(pp), allocatable, dimension(:,:), intent(in) :: matrix
 
     call createTree(tree%root, matrix, tree%maxDepth, tree%maxElementsPerCell,&

@@ -47,7 +47,7 @@ submodules:
 	$(FC) -c $(CFLAGS) $< -o $@ -J$(MODDIR)
 
 clean:
-	rm -f $(MAIN).out *.o
+	rm -f $(MAIN).out *.o *.mod
 	rm -f $(MODDIR)/*.mod
 	$(MAKE) -C util clean
 	$(MAKE) -C quadtree clean

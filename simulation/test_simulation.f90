@@ -6,7 +6,8 @@ program test_simulation
   use m_types, only: dp, i4, pp
   implicit none
 
-  type(QuadTree) :: tree
+  type(QuadTree), target :: tree
+  type(QuadTree), pointer :: pTree
 
   integer :: i, j, it, writeStateFrequency, numTimeSteps
 
@@ -54,8 +55,9 @@ program test_simulation
   call readIntMatrixFromFile(trim(filename)//".txt", matrix, nrows, ncols, status)
   call initializeQuadTree(tree, 10, 15, real(size(matrix, 2), dp), real(size(matrix, 1), dp))
 
-  call buildTreeFromMatrix(tree, matrix)
-
+  pTree => tree
+  call buildTreeFromMatrix(pTree, matrix)
+  
   do i=1,1000
     call random_number(particle)
     particle(1) = particle(1) * real(size(matrix, 2), dp)
@@ -68,11 +70,11 @@ program test_simulation
   write(itCounter, "(i5.5)") 0
   call writeRealMatrixToH5(trim(filename)//"_"//itCounter//".h5", cellMatrix, j, 5+4*tree%maxElementsPerCell, status)
   deallocate(cellMatrix)
-
+  
   do it=1,numTimeSteps
     call moveParticles(tree, dt)
     call removeUnnecessaryNodes(tree%root)
-
+  
     if (mod(it, writeStateFrequency) == 0) then
       call getLeafCells(tree, cellMatrix, j)
       write(itCounter, "(i5.5)") it

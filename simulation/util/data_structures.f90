@@ -37,10 +37,10 @@ contains
     tmp(:) = list%particles(:)
     !> deallocate the particles array and reallocate with new size
     deallocate(list%particles)
-    allocate(list%particles(list%length + list%chunksize))
+    allocate(list%particles((list%length + list%chunksize) * 4))
 
     !> copy the particles back to the particles array
-    list%particles(1:list%length) = tmp(:)
+    list%particles(1:list%length*4) = tmp(:)
     list%length = list%length + list%chunksize
 
     deallocate(tmp)
