@@ -1,6 +1,7 @@
 program test_simulation
-  use m_quadtree, only: QuadTree, QuadTreeNode, initializeQuadtree, insertElement, deleteTree, removeUnnecessaryNodes
-  use m_quadtree_io, only: createTree, getLeafCells, buildTreeFromMatrix, NodeStack, initializeStack, push, pop
+  use m_quadtree, only: QuadTree, QuadTreeNode, initializeQuadtree, insertElement, deleteTree, removeUnnecessaryNodes, &
+    NodeStack, initializeStack, push, pop
+  use m_quadtree_io, only: createTree, getLeafCells, buildTreeFromMatrix
   use m_simulation, only: moveParticles
   use m_matrix_io, only: readIntMatrixFromFile, writeRealMatrixToH5
   use m_types, only: dp, i4, pp
@@ -54,29 +55,35 @@ program test_simulation
 
   call readIntMatrixFromFile(trim(filename)//".txt", matrix, nrows, ncols, status)
   call initializeQuadTree(tree, 10, 15, real(size(matrix, 2), dp), real(size(matrix, 1), dp))
+  print *, tree%width
 
   pTree => tree
+  print *, pTree%width
   call buildTreeFromMatrix(pTree, matrix)
+
+  print *, pTree%width
   
   do i=1,1000
     call random_number(particle)
     particle(1) = particle(1) * real(size(matrix, 2), dp)
     particle(2) = particle(2) * real(size(matrix, 1), dp)
     ! print *, particle
-    call insertElement(tree%root, particle)
+    call insertElement(tree%root, particle, pTree)
   end do
+
+  print *, pTree%width
   
-  call getLeafCells(tree, cellMatrix, j)
+  call getLeafCells(pTree, cellMatrix, j)
   write(itCounter, "(i5.5)") 0
   call writeRealMatrixToH5(trim(filename)//"_"//itCounter//".h5", cellMatrix, j, 5+4*tree%maxElementsPerCell, status)
   deallocate(cellMatrix)
   
   do it=1,numTimeSteps
-    call moveParticles(tree, dt)
+    call moveParticles(dt, pTree)
     call removeUnnecessaryNodes(tree%root)
   
     if (mod(it, writeStateFrequency) == 0) then
-      call getLeafCells(tree, cellMatrix, j)
+      call getLeafCells(pTree, cellMatrix, j)
       write(itCounter, "(i5.5)") it
       call writeRealMatrixToH5(trim(filename)//"_"//itCounter//".h5", cellMatrix, j, 5+4*tree%maxElementsPerCell, status)
       deallocate(cellMatrix)

@@ -1,86 +1,17 @@
 module m_quadtree_io
-  use m_quadtree, only: QuadTreeNode, QuadTree, splitNode!, initializeQuadTreeNode
+  use m_quadtree, only: QuadTreeNode, QuadTree, splitNode, NodeStack, push, pop, deleteStack, initializeStack, &
+    cellWidth, cellHeight, cellX, cellY
   use m_types, only: pp, dp, i4
   implicit none
 
-  type :: StackNode
-    type(QuadTreeNode), pointer :: data
-    type(StackNode), pointer :: next => null()
-  end type StackNode
-
-  type :: NodeStack
-    integer :: topIndex = 0
-    type(StackNode), pointer :: first => null()
-    type(StackNode), pointer :: top => null()
-  end type NodeStack
-
 contains
-  
-  subroutine initializeStack(stack)
-    type(NodeStack), intent(inout) :: stack
-
-    nullify(stack%first)
-    nullify(stack%top)
-    stack%topIndex = 0
-  end subroutine initializeStack
-
-  subroutine deleteStack(stack)
-    type(NodeStack), intent(inout) :: stack
-    integer :: i
-    type(StackNode), pointer :: n1, n2
-
-    if (associated(stack%first)) then
-      n1 => stack%first
-      do i=1, stack%topIndex
-        n2 => n1%next
-        deallocate(n1)
-        n1 => n2
-      end do
-    end if
-
-    nullify(stack%first)
-    nullify(stack%top)
-  end subroutine deleteStack
-
-  subroutine push(stack, newValue)
-    type(NodeStack), intent(inout) :: stack
-    type(QuadTreeNode), pointer, intent(in) :: newValue
-    type(StackNode), pointer :: newNode
-
-    allocate(newNode)
-    newNode%data => newValue
-    if (associated(stack%top)) then
-      newNode%next => stack%top
-    end if 
-    if (.not.associated(stack%first)) then
-      stack%first => newNode
-    end if
-    stack%top => newNode
-    stack%topIndex = stack%topIndex + 1
-  end subroutine push
-
-  subroutine pop(stack, value)
-    type(NodeStack), intent(inout) :: stack
-    type(QuadTreeNode), pointer, intent(out) :: value
-    type(StackNode), pointer :: tempNode
-
-    if (associated(stack%top)) then
-      value => stack%top%data
-      tempNode => stack%top
-      stack%top => stack%top%next
-      deallocate(tempNode)
-    else
-      nullify(value)
-    end if
-    stack%topIndex = stack%topIndex - 1
-  end subroutine pop
-
 
   !> create a QuadTree from a matrix
   !> each node corresponds to a cell
   !> a cell is split if a value different from 0 is contained and maxDepth was not reached
-  recursive subroutine createTree(root, matrix, maxDepth, maxElementsPerCell, height, width, y, x)
+  recursive subroutine createTree(tree, root, matrix, maxDepth, maxElementsPerCell, height, width, y, x)
     implicit none
+    type(QuadTree), pointer, intent(inout) :: tree
     type(QuadTreeNode), pointer, intent(inout) :: root
     integer, intent(in) :: maxDepth, maxElementsPerCell
     integer(pp), allocatable, intent(in) :: matrix(:,:)
@@ -97,15 +28,6 @@ contains
     end if
 
     if (maxDepth == 1) then
-      ! call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
-      allocate(root%elements(4*maxElementsPerCell))
-      root%elements(:) = -1
-      root%numberOfElements = 0
-      root%x = x
-      root%y = y
-      root%width = width
-      root%height = height
-      nullify(root%children)
       root%isCollapsable = .false.
       return
     end if
@@ -125,41 +47,23 @@ contains
 
     !> if all matrix elements in this cell are > 0, the cell won't be split
     if (all(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)) then
-      ! call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
-      allocate(root%elements(4*maxElementsPerCell))
-      root%elements(:) = -1
-      root%numberOfElements = 0
-      root%x = x
-      root%y = y
-      root%width = width
-      root%height = height
-      nullify(root%children)
       return
 
     !> if a matrix element in this cell is /= 0 split the cell
     else if (any(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)) then
-      call splitNode(root)
+      call splitNode(root, tree)
 
       newWidth = width / 2
       newHeight = height / 2
       childNode => root%children(1)
-      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x)
+      call createTree(tree, childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x)
       childNode => root%children(2)
-      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x+newWidth)
+      call createTree(tree, childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x+newWidth)
       childNode => root%children(3)
-      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x)
+      call createTree(tree, childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x)
       childNode => root%children(4)
-      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x+newWidth)
+      call createTree(tree, childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x+newWidth)
     else
-      ! call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
-      allocate(root%elements(4*maxElementsPerCell))
-      root%elements(:) = -1
-      root%numberOfElements = 0
-      root%x = x
-      root%y = y
-      root%width = width
-      root%height = height
-      nullify(root%children)
       root%isCollapsable = .false.
     end if
 
@@ -171,7 +75,7 @@ contains
     type(QuadTree), pointer, intent(inout) :: tree
     integer(pp), allocatable, dimension(:,:), intent(in) :: matrix
 
-    call createTree(tree%root, matrix, tree%maxDepth, tree%maxElementsPerCell,&
+    call createTree(tree, tree%root, matrix, tree%maxDepth, tree%maxElementsPerCell,&
       real(size(matrix, 1), dp), real(size(matrix, 2), dp), 0._dp, 0._dp)
 
   end subroutine buildTreeFromMatrix
@@ -198,7 +102,7 @@ contains
 
   subroutine getLeafCells(tree, arrLeaves, numLeaves)
     implicit none
-    type(QuadTree), intent(in) :: tree
+    type(QuadTree), pointer, intent(in) :: tree
     real(dp), dimension(:,:), allocatable, intent(out) :: arrLeaves
     integer(i4), intent(out) :: numLeaves
 
@@ -219,7 +123,9 @@ contains
 
     do i = 1, numLeaves
       call pop(stack, n)
-      arrLeaves(i, 1:5) = [n%x, n%y, n%width, n%height, real(n%numberOfElements, dp)]
+      ! arrLeaves(i, 1:5) = [n%x, n%y, n%width, n%height, real(n%numberOfElements, dp)]
+      arrLeaves(i, 1:5) = [cellX(n) * tree%width, cellY(n)*tree%height, cellWidth(n)*tree%width, &
+        cellHeight(n)*tree%height, real(n%numberOfElements, dp)]
       arrLeaves(i, 6:) = n%elements(:)
     end do
 
@@ -228,75 +134,75 @@ contains
   end subroutine getLeafCells
 
 
-
-  !> plotting does not work accordingly with fractional height/width
-  subroutine printQuadTree(tree, matrix)
-    type(QuadTree), intent(in) :: tree
-    integer(pp), allocatable, intent(in) :: matrix(:,:)
-
-    ! integer :: x,y, width, height, layer
-    logical, allocatable :: gridMatrix(:, :, :)
-    integer :: i,j
-
-    type(QuadTreeNode), pointer :: n
-    type(NodeStack) :: childrenStack
-
-    call initializeStack(childrenStack)
-
-    call findLeaves(tree%root, childrenStack)
-
-    allocate(gridMatrix(size(matrix, 1), size(matrix, 2), 2))
-
-    gridMatrix = .false. !> initialize all values false
-
-
-    do while (childrenStack%topIndex > 0)
-      call pop(childrenStack, n)
-
-      ! print *, n%x, n%y, n%width, n%height
-
-      !> set upper border
-      gridMatrix(ceiling(n%y), ceiling(n%x) : ceiling(n%x)+floor(n%width)-1, 1) = .true.
-      !> set left border
-      gridMatrix(ceiling(n%y) : ceiling(n%y)+floor(n%height)-1, ceiling(n%x), 2) = .true.
-    end do
-
-    !> display the quadtree structure around the data matrix
-    do i=1, size(matrix, 1)
-      write(*, '(A1)', advance="no") '|'
-      do j=1, size(matrix, 2)
-        if (gridMatrix(i, j, 1)) then
-          write(*, '(A3)', advance="no") '---'
-        else
-          write(*, '(A3)', advance="no") '   '
-        end if 
-        if (j == size(matrix, 2)) then
-          exit
-        end if
-        write(*, '(A1)', advance="no") '-'
-      end do
-      write(*, '(A1)') '|'
-      do j=1, size(matrix, 2)
-        if (gridMatrix(i, j, 2)) then
-          write(*, '(A1)', advance="no") '|'
-        else
-          write(*, '(A1)', advance="no") ' '
-        end if
-        write(*, '(1x,I1,1x)', advance="no") matrix(i, j)
-      end do
-      write(*, '(A1)') '|'
-    end do
-    write(*, '(A1)', advance="no") '|'
-    do j=1, size(matrix, 2)-1
-      write(*, '(A4)', advance="no") '----'
-    end do
-    write(*, '(A4)') '---|'
-
-    deallocate(gridMatrix)
-    call deleteStack(childrenStack)
-
-  end subroutine printQuadTree
-
+  !
+  ! !> plotting does not work accordingly with fractional height/width
+  ! subroutine printQuadTree(tree, matrix)
+  !   type(QuadTree), intent(in) :: tree
+  !   integer(pp), allocatable, intent(in) :: matrix(:,:)
+  !
+  !   ! integer :: x,y, width, height, layer
+  !   logical, allocatable :: gridMatrix(:, :, :)
+  !   integer :: i,j
+  !
+  !   type(QuadTreeNode), pointer :: n
+  !   type(NodeStack) :: childrenStack
+  !
+  !   call initializeStack(childrenStack)
+  !
+  !   call findLeaves(tree%root, childrenStack)
+  !
+  !   allocate(gridMatrix(size(matrix, 1), size(matrix, 2), 2))
+  !
+  !   gridMatrix = .false. !> initialize all values false
+  !
+  !
+  !   do while (childrenStack%topIndex > 0)
+  !     call pop(childrenStack, n)
+  !
+  !     ! print *, n%x, n%y, n%width, n%height
+  !
+  !     !> set upper border
+  !     gridMatrix(ceiling(n%y), ceiling(n%x) : ceiling(n%x)+floor(n%width)-1, 1) = .true.
+  !     !> set left border
+  !     gridMatrix(ceiling(n%y) : ceiling(n%y)+floor(n%height)-1, ceiling(n%x), 2) = .true.
+  !   end do
+  !
+  !   !> display the quadtree structure around the data matrix
+  !   do i=1, size(matrix, 1)
+  !     write(*, '(A1)', advance="no") '|'
+  !     do j=1, size(matrix, 2)
+  !       if (gridMatrix(i, j, 1)) then
+  !         write(*, '(A3)', advance="no") '---'
+  !       else
+  !         write(*, '(A3)', advance="no") '   '
+  !       end if 
+  !       if (j == size(matrix, 2)) then
+  !         exit
+  !       end if
+  !       write(*, '(A1)', advance="no") '-'
+  !     end do
+  !     write(*, '(A1)') '|'
+  !     do j=1, size(matrix, 2)
+  !       if (gridMatrix(i, j, 2)) then
+  !         write(*, '(A1)', advance="no") '|'
+  !       else
+  !         write(*, '(A1)', advance="no") ' '
+  !       end if
+  !       write(*, '(1x,I1,1x)', advance="no") matrix(i, j)
+  !     end do
+  !     write(*, '(A1)') '|'
+  !   end do
+  !   write(*, '(A1)', advance="no") '|'
+  !   do j=1, size(matrix, 2)-1
+  !     write(*, '(A4)', advance="no") '----'
+  !   end do
+  !   write(*, '(A4)') '---|'
+  !
+  !   deallocate(gridMatrix)
+  !   call deleteStack(childrenStack)
+  !
+  ! end subroutine printQuadTree
+  !
 
 
 end module m_quadtree_io

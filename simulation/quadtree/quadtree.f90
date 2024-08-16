@@ -1,14 +1,17 @@
 module m_quadtree
-  use m_types, only: fp, pp, i4, dp
+  use m_types, only: fp, pp, i4, dp, i8, i2
   implicit none
 
   type :: QuadTreeNode
     integer(pp) :: numberOfElements
 
-    !> it should be possible to calculate this on the fly
-    !> but I'm not capable of wrapping my head around this
-    real(dp) :: x, y
-    real(dp) :: width, height
+    ! !> it should be possible to calculate this on the fly
+    ! !> but I'm not capable of wrapping my head around this
+    ! real(dp) :: x, y
+    ! real(dp) :: width, height
+
+    integer(i8) :: cellID = 0
+    integer(i2) :: cellLevel = 0
 
     !> whether a grid cell is allowed to be merged
     !> false if it is given from the structure
@@ -19,41 +22,136 @@ module m_quadtree
 
   end type QuadTreeNode
 
+  type :: StackNode
+    type(QuadTreeNode), pointer :: data
+    type(StackNode), pointer :: next => null()
+  end type StackNode
+
+  type :: NodeStack
+    integer :: topIndex = 0
+    type(StackNode), pointer :: first => null()
+    type(StackNode), pointer :: top => null()
+  end type NodeStack
+
   type :: QuadTree
     integer :: maxDepth
     integer :: maxElementsPerCell = 1
+    real(dp) :: width, height
+    type(NodeStack), pointer :: leafs
 
     type(QuadTreeNode), pointer :: root
   end type QuadTree
 
 contains
 
-  ! !> initialize a new QuadTreeNode
-  ! subroutine initializeQuadTreeNode(node, maxElements, x, y, width, height)
-  !   implicit none
-  !   type(QuadTreeNode), intent(inout) :: node
-  !   integer, intent(in) :: maxElements
-  !   real(dp), intent(in) :: x, y, width, height
-  !
-  !   ! print *, associated(node)
-  !   ! allocate(node)
-  !   print *, associated(node)
-  !   print *, x, y
-  !
-  !   print *, node%x
-  !   node%x = x
-  !   node%y = y
-  !   node%width = width
-  !   node%height = height
-  !
-  !   node%numberOfElements = 0
-  !   allocate(node%elements(4*maxElements))
-  !   node%elements(:) = -1
-  !
-  !   nullify(node%children)
-  !
-  ! end subroutine initializeQuadTreeNode
+  function cellWidth(node) result (width)
+    implicit none
+    type(QuadTreeNode), pointer, intent(in) :: node
+    real(dp) :: width
     
+    ! print *, node%cellLevel
+    width = 2._dp**(-node%cellLevel)
+  end function cellWidth
+
+  function cellHeight(node) result (height)
+    implicit none
+    type(QuadTreeNode), pointer, intent(in) :: node
+    real(dp) :: height
+    
+    height = 2._dp**(-node%cellLevel)
+  end function cellHeight
+
+  function cellX(node) result (x)
+    implicit none
+    type(QuadTreeNode), pointer, intent(in) :: node
+    real(dp) :: width
+    integer(i2) :: level
+    real(dp) :: x
+
+    width = 1._dp
+    x = 0._dp
+
+    do level = 0,node%cellLevel-1_i2
+      width = width * .5
+      x = x + width * ibits(node%cellID, level*2, 1)
+    end do
+  end function cellX
+    
+  function cellY(node) result (y)
+    implicit none
+    type(QuadTreeNode), pointer, intent(in) :: node
+    real(dp) :: height
+    integer(i2) :: level
+    real(dp) :: y
+
+    height = 1._dp
+    y = 0._dp
+
+    do level = 0,node%cellLevel-1_i2
+      height = height * .5
+      y = y + height * ibits(node%cellID, level*2+1, 1)
+    end do
+  end function cellY
+    
+
+  subroutine initializeStack(stack)
+    type(NodeStack), intent(inout) :: stack
+
+    nullify(stack%first)
+    nullify(stack%top)
+    stack%topIndex = 0
+  end subroutine initializeStack
+
+  subroutine deleteStack(stack)
+    type(NodeStack), intent(inout) :: stack
+    integer :: i
+    type(StackNode), pointer :: n1, n2
+
+    if (associated(stack%first)) then
+      n1 => stack%first
+      do i=1, stack%topIndex
+        n2 => n1%next
+        deallocate(n1)
+        n1 => n2
+      end do
+    end if
+
+    nullify(stack%first)
+    nullify(stack%top)
+  end subroutine deleteStack
+
+  subroutine push(stack, newValue)
+    type(NodeStack), intent(inout) :: stack
+    type(QuadTreeNode), pointer, intent(in) :: newValue
+    type(StackNode), pointer :: newNode
+
+    allocate(newNode)
+    newNode%data => newValue
+    if (associated(stack%top)) then
+      newNode%next => stack%top
+    end if 
+    if (.not.associated(stack%first)) then
+      stack%first => newNode
+    end if
+    stack%top => newNode
+    stack%topIndex = stack%topIndex + 1
+  end subroutine push
+
+  subroutine pop(stack, value)
+    type(NodeStack), intent(inout) :: stack
+    type(QuadTreeNode), pointer, intent(out) :: value
+    type(StackNode), pointer :: tempNode
+
+    if (associated(stack%top)) then
+      value => stack%top%data
+      tempNode => stack%top
+      stack%top => stack%top%next
+      deallocate(tempNode)
+    else
+      nullify(value)
+    end if
+    stack%topIndex = stack%topIndex - 1
+  end subroutine pop
 
   !> initialize a new QuadTree
   subroutine initializeQuadTree(tree, maxDepth, maxElementsPerCell, width, height)
@@ -63,12 +161,15 @@ contains
     real(dp), intent(in) :: width, height
   
     type(QuadTree), intent(out) :: tree
+
+    tree%width = width
+    tree%height = height
   
     allocate(tree%root)
-    tree%root%x = 0._dp
-    tree%root%y = 0._dp
-    tree%root%width = width
-    tree%root%height = height
+    ! tree%root%x = 0._dp
+    ! tree%root%y = 0._dp
+    ! tree%root%width = width
+    ! tree%root%height = height
     tree%root%numberOfElements = 0
     allocate(tree%root%elements(4*maxElementsPerCell))
     tree%root%elements(:) = -1
@@ -81,34 +182,47 @@ contains
   end subroutine initializeQuadTree
 
   !> add children to a node
-  subroutine splitNode(node)
+  subroutine splitNode(node, tree)
     implicit none
     type(QuadTreeNode), pointer, intent(inout) :: node
+    type(QuadTree), pointer, intent(inout) :: tree
 
-    real(dp) :: newWidth, newHeight
+    real(dp) :: newWidth, newHeight, x,y
     integer :: i, j
     integer, dimension(4) :: idx
 
     allocate(node%children(4))
     idx(:) = 0
 
-    newWidth = node%width / 2
-    newHeight = node%height / 2
+    newWidth = cellWidth(node) * tree%width / 2
+    newHeight = cellHeight(node) * tree%height / 2
+    x = cellX(node) * tree%width
+    y = cellY(node) * tree%height
+
+    ! x = node%x
+    ! y = node%y
+    ! print *, newWidth
+    ! newWidth = node%width / 2
+    ! newHeight = node%height / 2
+    ! print *, newWidth
 
     do i = 1,4
       node%children(i)%numberOfElements = 0
       allocate(node%children(i)%elements(size(node%elements, 1)))
       node%children(i)%elements(:) = -1
       nullify(node%children(i)%children)
-      node%children(i)%x = node%x
-      node%children(i)%y = node%y
-      node%children(i)%width = newWidth
-      node%children(i)%height = newHeight
+      ! node%children(i)%x = node%x
+      ! node%children(i)%y = node%y
+      ! node%children(i)%width = newWidth
+      ! node%children(i)%height = newHeight
+      
+      node%children(i)%cellID = node%cellID + shiftl(i-1, node%cellLevel*2)
+      node%children(i)%cellLevel = node%cellLevel + 1_i2
     end do
-    node%children(2)%x = node%x + newWidth
-    node%children(3)%y = node%y + newHeight
-    node%children(4)%x = node%x + newWidth
-    node%children(4)%y = node%y + newHeight
+    ! node%children(2)%x = node%x + newWidth
+    ! node%children(3)%y = node%y + newHeight
+    ! node%children(4)%x = node%x + newWidth
+    ! node%children(4)%y = node%y + newHeight
 
 
 
@@ -119,14 +233,14 @@ contains
 
     do i = 0,node%numberOfElements-1
       !> find the child where to sort the element in
-      if (node%elements(4*i+1) < node%x + newWidth) then
+      if (node%elements(4*i+1) < x + newWidth) then
         !> left side
         j = 1
       else
         !> right side
         j = 2
       end if
-      if (node%elements(4*i+2) > node%y + newHeight) then
+      if (node%elements(4*i+2) > y + newHeight) then
         !> lower row
         j = j+2
       end if
@@ -238,18 +352,19 @@ contains
     ! deallocate(node)
   end subroutine deleteSubTree
 
-  recursive subroutine insertElement(node, element)
+  recursive subroutine insertElement(node, element, tree)
     implicit none
     type(QuadTreeNode), pointer, intent(inout) :: node
     real(dp), dimension(4), intent(in) :: element
+    type(QuadTree), pointer, intent(inout) :: tree
     integer :: i
     type(QuadTreeNode), pointer :: nextNode => null()
 
     if (node%numberOfElements >= 0) then
       if (node%numberOfElements == size(node%elements, 1)/4) then
         !> if the cell is full, split it
-        call splitNode(node)
-        call insertElement(node, element)
+        call splitNode(node, tree)
+        call insertElement(node, element, tree)
       else
         !> otherwise insert the new element
         i = node%numberOfElements
@@ -257,18 +372,18 @@ contains
         node%numberOfElements = i+1
       end if
     else
-      if (element(1) < node%x + node%width/2) then
+      if (element(1) < (cellX(node) + cellWidth(node)/2)*tree%width) then
         i = 1
       else
         i = 2
       end if
-      if (element(2) >= node%y + node%height/2) then
+      if (element(2) >= (cellY(node) + cellHeight(node)/2)*tree%height) then
         i = i + 2
       end if
       
       nextNode => node%children(i)
 
-      call insertElement(nextNode, element)
+      call insertElement(nextNode, element, tree)
     end if
 
   end subroutine insertElement
