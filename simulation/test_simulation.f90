@@ -54,7 +54,7 @@ program test_simulation
 
 
   call readIntMatrixFromFile(trim(filename)//".txt", matrix, nrows, ncols, status)
-  call initializeQuadTree(tree, 10, 15, real(size(matrix, 2), dp), real(size(matrix, 1), dp))
+  call initializeQuadTree(tree, 10, 55, real(size(matrix, 2), dp), real(size(matrix, 1), dp))
   print *, tree%width
 
   pTree => tree
@@ -63,7 +63,7 @@ program test_simulation
 
   print *, pTree%width
   
-  do i=1,1000
+  do i=1,100000
     call random_number(particle)
     particle(1) = particle(1) * real(size(matrix, 2), dp)
     particle(2) = particle(2) * real(size(matrix, 1), dp)

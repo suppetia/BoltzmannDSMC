@@ -1,17 +1,18 @@
 module m_quadtree
-  use m_types, only: fp, pp, i4, dp, i8, i2
+  use m_types, only: fp, pp, i4, dp, i8, i1
   implicit none
 
   type :: QuadTreeNode
     integer(pp) :: numberOfElements
 
-    ! !> it should be possible to calculate this on the fly
-    ! !> but I'm not capable of wrapping my head around this
-    ! real(dp) :: x, y
-    ! real(dp) :: width, height
-
+    !> encoding for the position of the cell
+    !> 00 | 01
+    !> -------
+    !> 10 | 11
+    !> binary representation of each level
+    !> the first level is stored on the most right bits progressing to the left
     integer(i8) :: cellID = 0
-    integer(i2) :: cellLevel = 0
+    integer(i1) :: cellLevel = 0
 
     !> whether a grid cell is allowed to be merged
     !> false if it is given from the structure
@@ -21,6 +22,24 @@ module m_quadtree
     type(QuadTreeNode), pointer, dimension(:) :: children => null()
 
   end type QuadTreeNode
+
+  type :: ListNode
+    type(QuadTreeNode), pointer :: data
+    type(ListNode), pointer :: next => null()
+    type(ListNode), pointer :: previous => null()
+  end type ListNode
+
+  type :: NodeLinkedList
+    integer :: length = 0
+    type(ListNode), pointer :: first => null()
+    type(ListNode), pointer :: last => null()
+  end type NodeLinkedList
+
+  type :: NodeLinkedListIterator
+    type(NodeLinkedList), pointer :: list
+    type(ListNode), pointer :: previous, current, next
+  end type NodeLinkedListIterator
+
 
   type :: StackNode
     type(QuadTreeNode), pointer :: data
@@ -37,7 +56,7 @@ module m_quadtree
     integer :: maxDepth
     integer :: maxElementsPerCell = 1
     real(dp) :: width, height
-    type(NodeStack), pointer :: leafs
+    type(NodeLinkedList), pointer :: leafs
 
     type(QuadTreeNode), pointer :: root
   end type QuadTree
@@ -49,7 +68,6 @@ contains
     type(QuadTreeNode), pointer, intent(in) :: node
     real(dp) :: width
     
-    ! print *, node%cellLevel
     width = 2._dp**(-node%cellLevel)
   end function cellWidth
 
@@ -65,13 +83,13 @@ contains
     implicit none
     type(QuadTreeNode), pointer, intent(in) :: node
     real(dp) :: width
-    integer(i2) :: level
+    integer(i1) :: level
     real(dp) :: x
 
     width = 1._dp
     x = 0._dp
 
-    do level = 0,node%cellLevel-1_i2
+    do level = 0,node%cellLevel-1_i1
       width = width * .5
       x = x + width * ibits(node%cellID, level*2, 1)
     end do
@@ -81,18 +99,160 @@ contains
     implicit none
     type(QuadTreeNode), pointer, intent(in) :: node
     real(dp) :: height
-    integer(i2) :: level
+    integer(i1) :: level
     real(dp) :: y
 
     height = 1._dp
     y = 0._dp
 
-    do level = 0,node%cellLevel-1_i2
+    do level = 0,node%cellLevel-1_i1
       height = height * .5
       y = y + height * ibits(node%cellID, level*2+1, 1)
     end do
   end function cellY
-    
+
+
+  subroutine initializeLinkedList(list)
+    implicit none
+    type(NodeLinkedList), intent(inout) :: list
+
+    nullify(list%first)
+    nullify(list%last)
+    list%length = 0
+  end subroutine initializeLinkedList
+
+  subroutine deleteLinkedList(list)
+    implicit none
+    type(NodeLinkedList), intent(inout) :: list
+
+    type(ListNode), pointer :: n1,n2
+
+    if (associated(list%first)) then
+      n1 => list%first
+
+      do while (associated(n1%next))
+        n2 => n1%next
+        deallocate(n1)
+        n1 => n2
+      end do
+      deallocate(n1)
+    end if
+
+    nullify(list%first)
+    nullify(list%last)
+    list%length = 0
+  end subroutine deleteLinkedList
+
+  subroutine insertAfter(list, newValue, currentItem)
+    implicit none
+    type(NodeLinkedList), intent(inout) :: list
+    type(QuadTreeNode), pointer, intent(in) :: newValue
+    type(ListNode), pointer, intent(in), optional :: currentItem
+
+    type(ListNode), pointer :: newItem
+
+    allocate(newItem)
+    newItem%data => newValue
+
+    if (present(currentItem)) then
+      if (associated(currentItem%next)) then
+        newItem%next => currentItem%next
+      end if
+      currentItem%next => newItem
+      newItem%previous => currentItem
+
+      !> check if currentItem is the last item in the list and if yes update the list%last reference
+      if (.not.associated(newItem%next)) then
+        list%last => newItem
+      end if
+    else
+      !> if no currentItem is given, append to the end of the list
+      if (associated(list%last)) then
+        list%last%next => newItem
+      else
+        !> if no item was in the list
+        list%first => newItem
+      end if
+      list%last => newItem
+    end if
+
+  end subroutine insertAfter
+
+  subroutine deleteListNode(list, item)
+    implicit none
+    type(NodeLinkedList), intent(inout) :: list
+    type(ListNode), pointer, intent(inout) :: item
+
+    if (associated(item%previous)) then
+      item%previous%next => item%next
+    else
+      list%first => item%next
+    end if
+    if (associated(item%next)) then
+      item%next%previous => item%previous
+    else
+      list%last => item%previous
+    end if
+    deallocate(item)
+
+  end subroutine deleteListNode
+
+  subroutine initializeLinkedListIterator(it, list)
+    implicit none
+    type(NodeLinkedListIterator), intent(inout) :: it
+    type(NodeLinkedList), pointer, intent(in) :: list
+
+    nullify(it%previous)
+    nullify(it%current)
+    if (associated(list%first)) then
+      it%next => list%first
+    else
+      nullify(it%next)
+    end if
+  end subroutine initializeLinkedListIterator
+      
+  subroutine next(it)
+    implicit none
+    type(NodeLinkedListIterator), intent(inout) :: it
+
+    if (.not.associated(it%current)) then
+      print *, "reached end of list"
+      return
+    end if
+    it%previous => it%current
+    it%current => it%next
+    if (associated(it%next)) then
+      it%next => it%next%next
+    end if 
+  end subroutine next
+
+  subroutine previous(it)
+    implicit none
+    type(NodeLinkedListIterator), intent(inout) :: it
+
+    if (.not.associated(it%current)) then
+      print *, "reached start of list"
+      return
+    end if
+    it%next => it%current
+    it%current => it%previous
+    if (associated(it%previous)) then
+      it%previous => it%previous%previous
+    end if
+  end subroutine previous
+
+
+  subroutine getCurrentNode(it, node)
+    implicit none
+
+    type(NodeLinkedListIterator), intent(in) :: it
+    type(ListNode), pointer, intent(out) :: node
+
+    node => it%current
+
+  end subroutine getCurrentNode
+
+
 
   subroutine initializeStack(stack)
     type(NodeStack), intent(inout) :: stack
@@ -166,14 +326,17 @@ contains
     tree%height = height
   
     allocate(tree%root)
-    ! tree%root%x = 0._dp
-    ! tree%root%y = 0._dp
-    ! tree%root%width = width
-    ! tree%root%height = height
+    tree%root%cellID = 0_i8
+    tree%root%cellLevel = 0_i1
     tree%root%numberOfElements = 0
     allocate(tree%root%elements(4*maxElementsPerCell))
     tree%root%elements(:) = -1
     nullify(tree%root%children)
+
+    allocate(tree%leafs)
+    call initializeLinkedList(tree%leafs)
+    call insertAfter(tree%leafs, tree%root)
+
   
   
     tree%maxDepth = maxDepth
@@ -199,37 +362,16 @@ contains
     x = cellX(node) * tree%width
     y = cellY(node) * tree%height
 
-    ! x = node%x
-    ! y = node%y
-    ! print *, newWidth
-    ! newWidth = node%width / 2
-    ! newHeight = node%height / 2
-    ! print *, newWidth
-
     do i = 1,4
       node%children(i)%numberOfElements = 0
       allocate(node%children(i)%elements(size(node%elements, 1)))
       node%children(i)%elements(:) = -1
       nullify(node%children(i)%children)
-      ! node%children(i)%x = node%x
-      ! node%children(i)%y = node%y
-      ! node%children(i)%width = newWidth
-      ! node%children(i)%height = newHeight
       
       node%children(i)%cellID = node%cellID + shiftl(i-1, node%cellLevel*2)
-      node%children(i)%cellLevel = node%cellLevel + 1_i2
+      node%children(i)%cellLevel = node%cellLevel + 1_i1
     end do
-    ! node%children(2)%x = node%x + newWidth
-    ! node%children(3)%y = node%y + newHeight
-    ! node%children(4)%x = node%x + newWidth
-    ! node%children(4)%y = node%y + newHeight
 
-
-
-    ! call initializeQuadTreeNode(node%children(i), size(node%elements,1)/4, node%x, node%y, newWidth, newHeight)
-    ! call initializeQuadTreeNode(childNode, size(node%elements,1)/4, node%x+newWidth, node%y, newWidth, newHeight)
-    ! call initializeQuadTreeNode(childNode, size(node%elements,1)/4, node%x, node%y+newHeight, newWidth, newHeight)
-    ! call initializeQuadTreeNode(childNode, size(node%elements,1)/4, node%x+newWidth, node%y+newHeight, newWidth, newHeight)
 
     do i = 0,node%numberOfElements-1
       !> find the child where to sort the element in
@@ -323,6 +465,8 @@ contains
     implicit none
     type(QuadTree), intent(inout) :: tree
 
+    call deleteLinkedList(tree%leafs)
+    deallocate(tree%leafs)
     call deleteSubTree(tree%root)
 
     deallocate(tree%root)
