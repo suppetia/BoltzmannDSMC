@@ -119,7 +119,7 @@ contains
     numLeaves = stack%topIndex
 
     !> retrieve the information how many elements per cell are stored and allocate the cellMatrix
-    allocate(arrLeaves(numLeaves, 5+4*tree%maxElementsPerCell))
+    allocate(arrLeaves(numLeaves, 5+5*tree%maxElementsPerCell))
 
     do i = 1, numLeaves
       call pop(stack, n)

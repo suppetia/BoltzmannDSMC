@@ -1,11 +1,19 @@
 module m_data_structures
-  use m_types, only: dp, i4
+  use m_types, only: dp, i4, i2
   implicit none
 
   type :: ParticleList
     real(dp), allocatable, dimension(:) :: particles
     integer(i4) :: chunksize
     integer(i4) :: length, numParticles
+  end type
+
+  type :: ParticleAverageCounter
+    integer(i2) :: historyLength
+    integer(i4), dimension(:), allocatable :: history
+
+    integer(i2) :: currentPosition
+    integer(i4) :: average
   end type
 
 contains
@@ -23,7 +31,7 @@ contains
 
     list%numParticles = 0
     list%length = list%chunksize
-    allocate(list%particles(list%length*4))
+    allocate(list%particles(list%length*5))
   end subroutine initializeParticleList
 
   subroutine extendParticleListLength(list)
@@ -33,14 +41,14 @@ contains
     real(dp), allocatable, dimension(:) :: tmp
 
     !> temporarily copy the current particles to tmp
-    allocate(tmp(list%length*4))
+    allocate(tmp(list%length*5))
     tmp(:) = list%particles(:)
     !> deallocate the particles array and reallocate with new size
     deallocate(list%particles)
-    allocate(list%particles((list%length + list%chunksize) * 4))
+    allocate(list%particles((list%length + list%chunksize) * 5))
 
     !> copy the particles back to the particles array
-    list%particles(1:list%length*4) = tmp(:)
+    list%particles(1:list%length*5) = tmp(:)
     list%length = list%length + list%chunksize
 
     deallocate(tmp)
@@ -60,13 +68,13 @@ contains
   subroutine append(list, particle)
     implicit none
     type(ParticleList), intent(inout) :: list
-    real(dp), dimension(4), intent(in) :: particle
+    real(dp), dimension(5), intent(in) :: particle
 
     if (list%numParticles == list%length) then
       call extendParticleListLength(list)
     end if
 
-    list%particles(4*list%numParticles+1:4*list%numParticles+4) = particle(:)
+    list%particles(5*list%numParticles+1:5*list%numParticles+5) = particle(:)
     list%numParticles = list%numParticles + 1
   end subroutine
 
@@ -74,13 +82,41 @@ contains
     implicit none
     type(ParticleList), intent(in) :: list
     integer(i4), intent(in) :: idx
-    real(dp), dimension(4), intent(out) :: particle
+    real(dp), dimension(5), intent(out) :: particle
 
     if (idx > list%numParticles) then
       write(*, fmt="(a,1x,i0)", advance="no") "invalid index:", idx
       return
     end if
-    particle(:) = list%particles(4*idx-3:4*idx)
+    particle(:) = list%particles(5*idx-4:5*idx)
 
   end subroutine getByIndex
+
+  subroutine initializeParticleAverageCounter(counter, historyLength)
+    implicit none
+    type(ParticleAverageCounter), intent(out) :: counter
+    integer(i2), intent(in) :: historyLength
+
+    allocate(counter%history(historyLength))
+    counter%historyLength = historyLength
+    counter%currentPosition = 0
+    counter%average = 0
+  end subroutine initializeParticleAverageCounter
+
+  subroutine addParticleCount(counter, val)
+    implicit none
+    type(ParticleAverageCounter), intent(inout) :: counter
+    integer(i4), intent(in) :: val
+
+    if (counter%currentPosition == counter%historyLength) then
+      counter%currentPosition = 1
+    else
+      counter%currentPosition = counter%currentPosition + 1
+    end if
+    counter%average = counter%average - counter%history(counter%currentPosition)/counter%historyLength
+    counter%history(counter%currentPosition) = val
+    counter%average = counter%average + val/counter%historyLength
+
+  end subroutine addParticleCount
+
 end module m_data_structures

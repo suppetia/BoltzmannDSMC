@@ -8,7 +8,7 @@ LIBDIR ?= ../lib
 
 ARCHIVE=libutil.a
 
-OBJECTS=types.o matrix_io.o data_structures.o
+OBJECTS=types.o matrix_io.o data_structures.o util.o
 
 
 # paths to the HDF5 installation

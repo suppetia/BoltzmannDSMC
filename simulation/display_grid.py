@@ -34,9 +34,9 @@ def get_grid_and_particles(cell_matrix):
         #     points.append([cell[i], cell[i+1]])
         #     print(cell[i], cell[i+1])
 
-    points_x = cell_matrix[:, 5::4].reshape(-1)
+    points_x = cell_matrix[:, 5::5].reshape(-1)
     np.place(points_x, points_x < 0, np.nan)
-    points_y = cell_matrix[:, 6::4].reshape(-1)
+    points_y = cell_matrix[:, 6::5].reshape(-1)
     np.place(points_y, points_y < 0, np.nan)
 
     return [points_x, points_y], patches
@@ -55,14 +55,14 @@ def update_plot(num, filebasename, artists):
 filename_image = "data/test_8.png"
 filebasename = "data/matrix8"
 
-num_images = 25
+num_images = 250
 
 
 
-img = plt.imread(filename_image)
+# img = plt.imread(filename_image)
 
 fig, ax = plt.subplots()
-ax.imshow(img)
+# ax.imshow(img)
 
 pts = ax.scatter([],[], color="blue", marker=".")
 print(type(pts))
@@ -76,4 +76,6 @@ ani = FuncAnimation(fig, update_plot, fargs=(filebasename, [pts, patch]),
 
 # ax.set_xlim(-1, 1025)
 # ax.set_ylim(-1, 1025)
+ax.set_xlim(-.1,1.1)
+ax.set_ylim(-.1,1.1)
 plt.show()

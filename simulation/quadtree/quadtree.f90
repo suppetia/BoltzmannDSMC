@@ -1,6 +1,16 @@
 module m_quadtree
-  use m_types, only: fp, pp, i4, dp, i8, i1
+  use m_types, only: fp, pp, i4, dp, i8, i1, i2
+  use m_data_structures, only: ParticleAverageCounter, initializeParticleAverageCounter
+  use m_util, only: SimulationParameters
   implicit none
+
+  type :: CellStats
+    type(ParticleAverageCounter) :: particleCounter
+    integer(i4), pointer :: N_avg !> average number of particles in the cell
+
+    real(dp) :: maxSigmaC !> maxValue of sigma_T * c_r
+
+  end type CellStats
 
   type :: QuadTreeNode
     integer(pp) :: numberOfElements
@@ -11,8 +21,12 @@ module m_quadtree
     !> 10 | 11
     !> binary representation of each level
     !> the first level is stored on the most right bits progressing to the left
+    !> in the bits 58-63 the level of the cell is stored (bit 64 is used for the sign to mark invalid values)
+    !> therefore the maximum level can be (8*8-6)/2=58/2=29
     integer(i8) :: cellID = 0
-    integer(i1) :: cellLevel = 0
+
+    !> store stats for each cell
+    type(CellStats), pointer :: stats
 
     !> whether a grid cell is allowed to be merged
     !> false if it is given from the structure
@@ -20,7 +34,6 @@ module m_quadtree
 
     real(dp), pointer, dimension(:) :: elements => null()
     type(QuadTreeNode), pointer, dimension(:) :: children => null()
-
   end type QuadTreeNode
 
   type :: ListNode
@@ -57,41 +70,58 @@ module m_quadtree
     integer :: maxElementsPerCell = 1
     real(dp) :: width, height
     type(NodeLinkedList), pointer :: leafs
+    type(SimulationParameters) :: params
 
     type(QuadTreeNode), pointer :: root
   end type QuadTree
 
 contains
 
+  function cellLevel(node) result (level)
+    implicit none
+    type(QuadTreeNode), pointer, intent(in) :: node
+    integer(i1) :: level
+
+    level = int(shiftr(node%cellID, 58), i1)
+  end function cellLevel
+
   function cellWidth(node) result (width)
     implicit none
     type(QuadTreeNode), pointer, intent(in) :: node
     real(dp) :: width
+    integer(i1) :: level
+
+    level = cellLevel(node)
     
-    width = 2._dp**(-node%cellLevel)
+    width = 2._dp**(-level)
   end function cellWidth
 
   function cellHeight(node) result (height)
     implicit none
     type(QuadTreeNode), pointer, intent(in) :: node
     real(dp) :: height
+    integer(i1) :: level
+
+    level = cellLevel(node)
     
-    height = 2._dp**(-node%cellLevel)
+    height = 2._dp**(-level)
   end function cellHeight
 
   function cellX(node) result (x)
     implicit none
     type(QuadTreeNode), pointer, intent(in) :: node
     real(dp) :: width
-    integer(i1) :: level
+    integer(i1) :: level, currentLevel
     real(dp) :: x
 
     width = 1._dp
     x = 0._dp
 
-    do level = 0,node%cellLevel-1_i1
+    level = cellLevel(node)
+
+    do currentLevel = 0,level-1_i1
       width = width * .5
-      x = x + width * ibits(node%cellID, level*2, 1)
+      x = x + width * ibits(node%cellID, currentLevel*2, 1)
     end do
   end function cellX
     
@@ -99,18 +129,127 @@ contains
     implicit none
     type(QuadTreeNode), pointer, intent(in) :: node
     real(dp) :: height
-    integer(i1) :: level
+    integer(i1) :: level, currentLevel
     real(dp) :: y
 
     height = 1._dp
     y = 0._dp
 
-    do level = 0,node%cellLevel-1_i1
+    level = cellLevel(node)
+
+    do currentLevel = 0,level-1_i1
       height = height * .5
-      y = y + height * ibits(node%cellID, level*2+1, 1)
+      y = y + height * ibits(node%cellID, currentLevel*2+1, 1)
     end do
   end function cellY
 
+  !> return the cellID of a theoretical right neighbor cell of the same level
+  !> if this is already a right most cell, return -1 as an error indication
+  function rightNeighborID(node) result (cellID)
+    implicit none
+    type(QuadTreeNode), pointer, intent(in) :: node
+    integer(i8) :: cellID
+    integer(i1) :: level, levelOfCell
+
+    cellID = node%cellID
+    levelOfCell = cellLevel(node)
+
+    !> iterate starting from the lowest level
+    do level = levelOfCell-1_i1,0,-1
+      !> if the x-bit at the current level indicates a left cell, set it to the right cell
+      !> and return the value
+      if (ibits(node%cellID, 2*level, 1) == 0) then
+        cellID = ibset(cellID, 2*level)
+        return
+      end if
+      !> if the x-bit indicates a right cell, set it to a left cell and repeat with one level up
+      cellID = ibclr(cellID, 2*level)
+    end do
+    !> if all levels have been right cells, there is no right neighbor cell
+    !> set the return value to an error state
+    cellID = -1_i1
+  end function rightNeighborID
+
+  !> return the cellID of a theoretical left neighbor cell of the same level
+  !> if this is already a left most cell, return -1 as an error indication
+  function leftNeighborID(node) result (cellID)
+    implicit none
+    type(QuadTreeNode), pointer, intent(in) :: node
+    integer(i8) :: cellID
+    integer(i1) :: level, levelOfCell
+
+    cellID = node%cellID
+    levelOfCell = cellLevel(node)
+
+    !> iterate starting from the lowest level
+    do level = levelOfCell-1_i1,0,-1
+      !> if the x-bit at the current level indicates a right cell, set it to the left cell
+      !> and return the value
+      if (ibits(node%cellID, 2*level, 1) == 1) then
+        cellID = ibclr(cellID, 2*level)
+        return
+      end if
+      !> if the x-bit indicates a left cell, set it to a right cell and repeat with one level up
+      cellID = ibset(cellID, 2*level)
+    end do
+    !> if all levels have been left cells, there is no left neighbor cell
+    !> set the return value to an error state
+    cellID = -1_i1
+  end function leftNeighborID
+
+  !> return the cellID of a theoretical lower neighbor cell of the same level
+  !> if this is already a lower most cell, return -1 as an error indication
+  function lowerNeighborID(node) result (cellID)
+    implicit none
+    type(QuadTreeNode), pointer, intent(in) :: node
+    integer(i8) :: cellID
+    integer(i1) :: level, levelOfCell
+
+    cellID = node%cellID
+    levelOfCell = cellLevel(node)
+
+    !> iterate starting from the lowest level
+    do level = levelOfCell-1_i1,0,-1
+      !> if the x-bit at the current level indicates an upper cell, set it to the lower cell
+      !> and return the value
+      if (ibits(node%cellID, 2*level+1, 1) == 0) then
+        cellID = ibset(cellID, 2*level+1)
+        return
+      end if
+      !> if the x-bit indicates a lower cell, set it to a upper cell and repeat with one level up
+      cellID = ibclr(cellID, 2*level+1)
+    end do
+    !> if all levels have been lower cells, there is no lower neighbor cell
+    !> set the return value to an error state
+    cellID = -1_i1
+  end function lowerNeighborID
+
+  !> return the cellID of a theoretical upper neighbor cell of the same level
+  !> if this is already an upper most cell, return -1 as an error indication
+  function upperNeighborID(node) result (cellID)
+    implicit none
+    type(QuadTreeNode), pointer, intent(in) :: node
+    integer(i8) :: cellID
+    integer(i1) :: level, levelOfCell
+
+    cellID = node%cellID
+    levelOfCell = cellLevel(node)
+
+    !> iterate starting from the lowest level
+    do level = levelOfCell-1_i1,0,-1
+      !> if the x-bit at the current level indicates a lower cell, set it to the upper cell
+      !> and return the value
+      if (ibits(node%cellID, 2*level+1, 1) == 1) then
+        cellID = ibclr(cellID, 2*level+1)
+        return
+      end if
+      !> if the x-bit indicates a left cell, set it to a lower cell and repeat with one level up
+      cellID = ibset(cellID, 2*level+1)
+    end do
+    !> if all levels have been upper cells, there is no upper neighbor cell
+    !> set the return value to an error state
+    cellID = -1_i1
+  end function upperNeighborID
 
   subroutine initializeLinkedList(list)
     implicit none
@@ -313,12 +452,26 @@ contains
     stack%topIndex = stack%topIndex - 1
   end subroutine pop
 
+
+  subroutine initializeCellStats(stats, historyLength)
+    implicit none
+    type(CellStats), pointer, intent(inout) :: stats
+    integer(i2), intent(in) :: historyLength
+
+    allocate(stats)
+    call initializeParticleAverageCounter(stats%particleCounter, historyLength)
+    stats%maxSigmaC = 1e-16
+
+  end subroutine initializeCellStats
+
+
   !> initialize a new QuadTree
-  subroutine initializeQuadTree(tree, maxDepth, maxElementsPerCell, width, height)
+  subroutine initializeQuadTree(tree, maxDepth, maxElementsPerCell, width, height, params)
     implicit none
     integer, intent(in) :: maxDepth
     integer, intent(in) :: maxElementsPerCell
     real(dp), intent(in) :: width, height
+    type(SimulationParameters), intent(in) :: params
   
     type(QuadTree), intent(out) :: tree
 
@@ -327,17 +480,17 @@ contains
   
     allocate(tree%root)
     tree%root%cellID = 0_i8
-    tree%root%cellLevel = 0_i1
     tree%root%numberOfElements = 0
-    allocate(tree%root%elements(4*maxElementsPerCell))
+    allocate(tree%root%elements(5*maxElementsPerCell))
     tree%root%elements(:) = -1
     nullify(tree%root%children)
+    call initializeCellStats(tree%root%stats, params%cellHistoryLength)
 
     allocate(tree%leafs)
     call initializeLinkedList(tree%leafs)
     call insertAfter(tree%leafs, tree%root)
 
-  
+    tree%params = params 
   
     tree%maxDepth = maxDepth
     tree%maxElementsPerCell = maxElementsPerCell
@@ -353,6 +506,7 @@ contains
     real(dp) :: newWidth, newHeight, x,y
     integer :: i, j
     integer, dimension(4) :: idx
+    integer(i8) :: level, childLevel
 
     allocate(node%children(4))
     idx(:) = 0
@@ -362,32 +516,40 @@ contains
     x = cellX(node) * tree%width
     y = cellY(node) * tree%height
 
+    level = cellLevel(node)
+    childLevel = ibits(node%cellID, 58, 6) + 1_i8
+
     do i = 1,4
       node%children(i)%numberOfElements = 0
       allocate(node%children(i)%elements(size(node%elements, 1)))
       node%children(i)%elements(:) = -1
       nullify(node%children(i)%children)
-      
-      node%children(i)%cellID = node%cellID + shiftl(i-1, node%cellLevel*2)
-      node%children(i)%cellLevel = node%cellLevel + 1_i1
+
+      node%children(i)%cellID = node%cellID + shiftl(i-1, level*2)
+      call mvbits(childLevel, 0, 6, node%children(i)%cellID, 58)
+
+      call initializeCellStats(node%children(i)%stats, node%stats%particleCounter%historyLength)
+      node%children(i)%stats%particleCounter%history(:) = node%stats%particleCounter%history(:) / 4
+      node%children(i)%stats%particleCounter%average = node%stats%particleCounter%average / 4
+      node%children(i)%stats%particleCounter%currentPosition = node%stats%particleCounter%currentPosition
     end do
 
 
     do i = 0,node%numberOfElements-1
       !> find the child where to sort the element in
-      if (node%elements(4*i+1) < x + newWidth) then
+      if (node%elements(5*i+1) < x + newWidth) then
         !> left side
         j = 1
       else
         !> right side
         j = 2
       end if
-      if (node%elements(4*i+2) > y + newHeight) then
+      if (node%elements(5*i+2) > y + newHeight) then
         !> lower row
         j = j+2
       end if
       !> copy the element entries to the corresponding child
-      node%children(j)%elements(4*idx(j)+1:4*(idx(j)+1)) = node%elements(4*i+1:4*(i+1))
+      node%children(j)%elements(5*idx(j)+1:5*(idx(j)+1)) = node%elements(5*i+1:5*(i+1))
       idx(j) = idx(j)+1
     end do
 
@@ -399,6 +561,8 @@ contains
     node%numberOfElements= -1
     deallocate(node%elements)
     node%elements => null()
+    deallocate(node%stats)
+    node%stats => null()
 
   end subroutine splitNode
 
@@ -414,15 +578,21 @@ contains
     allocate(node%elements(size(node%children(1)%elements,1)))
     node%elements(:) = -1
 
+    call initializeCellStats(node%stats, node%children(1)%stats%particleCounter%historyLength)
+    node%stats%particleCounter%currentPosition = node%children(1)%stats%particleCounter%currentPosition
+
     idx = 0
 
     do i=1,4
       childNode => node%children(i)
       do j=0,childNode%numberOfElements-1
-        node%elements(4*idx+1:4*(idx+1)) = childNode%elements(4*j+1:4*(j+1))
+        node%elements(5*idx+1:5*(idx+1)) = childNode%elements(5*j+1:5*(j+1))
+        node%stats%particleCounter%history(:) = node%stats%particleCounter%history(:) + childNode%stats%particleCounter%history(:)
+        node%stats%particleCounter%average = node%stats%particleCounter%average + childNode%stats%particleCounter%average
         idx = idx+1
       end do
       deallocate(childNode%elements)
+      deallocate(childNode%stats)
       ! deallocate(childNode)
     end do
     node%numberOfElements = idx
@@ -456,7 +626,7 @@ contains
         numElements = numElements + childNode%numberOfElements
       end if
     end do
-    if (isMergeable .and. numElements <= size(node%children(1)%elements,1)/4) then
+    if (isMergeable .and. numElements <= size(node%children(1)%elements,1)/5) then
       call mergeChildren(node)
     end if
   end subroutine removeUnnecessaryNodes
@@ -496,23 +666,58 @@ contains
     ! deallocate(node)
   end subroutine deleteSubTree
 
+  subroutine insertElementWithCellIDHint(cellID, element, tree)
+    implicit none
+    integer(i8), intent(in) :: cellID
+    real(dp), dimension(5), intent(in) :: element
+    type(QuadTree), pointer, intent(inout) :: tree
+
+    type(QuadTreeNode), pointer :: node
+    integer(i1) :: level, levelOfCell
+    real(dp) :: x,y,width,height
+
+    node => tree%root
+
+    levelOfCell = int(shiftr(cellID, 58), i1)
+
+    do level = 0,levelOfCell
+      if (associated(node%children)) then
+        node => node%children(ibits(cellID, 2*level, 2))
+      else
+        exit
+      end if
+    end do
+    x = cellX(node) * tree%width
+    y = celly(node) * tree%height
+    width = cellWidth(node) * tree%width
+    height = cellHeight(node) * tree%height
+    if (x <= element(1) .and. element(1) < x+width &
+        .and. y <= element(2) .and. element(2) < y+height) then
+      call insertElement(node, element, tree)
+    else
+      !> if the hint was not correct, use a usual insert starting from the root node
+      call insertElement(tree%root, element, tree)
+    end if
+
+  end subroutine insertElementWithCellIDHint
+
   recursive subroutine insertElement(node, element, tree)
     implicit none
     type(QuadTreeNode), pointer, intent(inout) :: node
-    real(dp), dimension(4), intent(in) :: element
+    real(dp), dimension(5), intent(in) :: element
     type(QuadTree), pointer, intent(inout) :: tree
     integer :: i
     type(QuadTreeNode), pointer :: nextNode => null()
 
     if (node%numberOfElements >= 0) then
-      if (node%numberOfElements == size(node%elements, 1)/4) then
+      if (node%numberOfElements == size(node%elements, 1)/5) then
         !> if the cell is full, split it
         call splitNode(node, tree)
         call insertElement(node, element, tree)
       else
         !> otherwise insert the new element
         i = node%numberOfElements
-        node%elements(4*i+1:4*(i+1)) = element(:)
+        node%elements(5*i+1:5*(i+1)) = element(:)
         node%numberOfElements = i+1
       end if
     else
@@ -586,9 +791,9 @@ contains
       return
     end if
     !> copy the last element to index i
-    node%elements(4*(i-1)+1:4*i) = node%elements(4*(j-1)+1:4*j)
+    node%elements(5*(i-1)+1:5*i) = node%elements(5*(j-1)+1:5*j)
     !> remove the last element
-    node%elements(4*(j-1)+1:4*j) = -1
+    node%elements(5*(j-1)+1:5*j) = -1
     node%numberOfElements = j - 1
     ! print *, node%numberOfElements
 
