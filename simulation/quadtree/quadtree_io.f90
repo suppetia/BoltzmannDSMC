@@ -1,7 +1,8 @@
 module m_quadtree_io
   use m_quadtree, only: QuadTreeNode, QuadTree, splitNode, NodeStack, push, pop, deleteStack, initializeStack, &
-    cellWidth, cellHeight, cellX, cellY
-  use m_types, only: pp, dp, i4
+    cellWidth, cellHeight, cellX, cellY, initializeQuadTree, initializeCellStats
+  use m_types, only: pp, dp, i4, i1, i8
+  use m_util, only: SimulationParameters
   implicit none
 
 contains
@@ -79,6 +80,91 @@ contains
       real(size(matrix, 1), dp), real(size(matrix, 2), dp), 0._dp, 0._dp)
 
   end subroutine buildTreeFromMatrix
+
+  subroutine createTreeFromFile(tree, params, filename)
+    implicit none
+    type(QuadTree), pointer, intent(inout) :: tree
+    type(SimulationParameters), pointer, intent(in) :: params
+    character(len=*), intent(in) :: filename
+
+    character(len=1000) :: line
+  
+    type(QuadTreeNode), pointer :: n
+    integer :: io, ioStatus, level
+    integer :: i,j, k, nRows
+  
+    integer(i8) :: cellID
+    integer(i1) :: numberOfContours, isLeaf
+    real(dp) :: width, height
+  
+    io = 10
+  
+    !> open the file for reading
+    open(unit=io, file=filename, status='old', action='read', iostat=ioStatus)
+  
+    read(io, *, iostat=ioStatus) nRows, width, height
+
+    print *, ioStatus
+    print *, width, height
+
+    params%width = width
+    params%height = height
+  
+  
+    call initializeQuadTree(tree, -1, params)
+  
+    do k=1,nRows
+      ! read(io, "(A)", advance="yes", iostat=ioStatus) line
+      !
+      ! !> read the cellID, whether the cell is a leaf and the number of contours
+      ! read(line, fmt="(I20, 1X, I1, 1X, I1)", iostat=ioStatus) cellID, isLeaf, numberOfContours
+      read(io, *) cellID, isLeaf, numberOfContours
+  
+      ! print *, ioStatus
+      ! print *, cellID, isLeaf, numberOfContours
+      !> check for end of file
+      if (ioStatus /= 0) then
+        exit
+      end if
+  
+      n => tree%root
+      do level = 1, shiftr(cellID, 58)
+        ! print *, ibits(cellID, 2*(level-1), 2)+1
+        n => n%children(ibits(cellID, 2*(level-1), 2)+1)
+      end do
+      n%cellID = cellID
+      n%isCollapsable = .false.
+      if (isLeaf == 0) then
+        allocate(n%children(4))
+        n%numberOfElements = -1
+      else
+        call initializeCellStats(n%stats, params%cellHistoryLength)
+        allocate(n%elements(5*params%maxElementsPerCell))
+        n%elements(:) = -1
+        n%numberOfElements = 0
+        !> if there are lines in that cell, read them in
+        if (numberOfContours > 0) then
+          allocate(n%structures(numberOfContours, 6))
+          ! read(line, *, iostat=ioStatus) cellID, isLeaf, numberOfContours, ((n%structures(i,j), j = 1, 5), i=1, numberOfContours)
+          read(io, *) ((n%structures(i,j), j = 1, 6), i=1, numberOfContours)
+          ! print *, n%structures(:,:)
+          ! do i = 1, numberOfContours
+          !   read(io, fmt="(1X,F21.5,1X,F21.5,1X,F21.5,1X,F21.5,1X,F21.5)", advance="no", iostat=ioStatus)& 
+          !     (n%structures(i,j), j = 1, 5)
+          !   print *, ioStatus
+          !   print *, n%structures(i, :)
+          ! end do
+          ! ! read(io)
+        end if
+
+      end if
+
+    end do
+
+    !> close the file
+    close(io)
+
+  end subroutine createTreeFromFile
 
 
   recursive subroutine findLeaves(root, stack)

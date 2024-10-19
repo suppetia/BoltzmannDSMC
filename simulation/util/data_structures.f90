@@ -13,7 +13,8 @@ module m_data_structures
     integer(i4), dimension(:), allocatable :: history
 
     integer(i2) :: currentPosition
-    integer(i4) :: average
+    real(dp) :: average
+    logical :: historyIsFull = .false.
   end type
 
 contains
@@ -94,28 +95,44 @@ contains
 
   subroutine initializeParticleAverageCounter(counter, historyLength)
     implicit none
-    type(ParticleAverageCounter), intent(out) :: counter
+    type(ParticleAverageCounter), pointer, intent(out) :: counter
     integer(i2), intent(in) :: historyLength
 
+    allocate(counter)
     allocate(counter%history(historyLength))
+    counter%history = 0
     counter%historyLength = historyLength
     counter%currentPosition = 0
     counter%average = 0
   end subroutine initializeParticleAverageCounter
 
+  subroutine deleteParticleAverageCounter(counter)
+    implicit none
+    type(ParticleAverageCounter), pointer, intent(inout) :: counter
+
+    deallocate(counter%history)
+    deallocate(counter)
+  end subroutine deleteParticleAverageCounter
+
   subroutine addParticleCount(counter, val)
     implicit none
-    type(ParticleAverageCounter), intent(inout) :: counter
+    type(ParticleAverageCounter), pointer, intent(inout) :: counter
     integer(i4), intent(in) :: val
 
     if (counter%currentPosition == counter%historyLength) then
+      counter%historyIsFull = .true. !> if the position is reset to the beginning the history is filled at least once
       counter%currentPosition = 1
     else
       counter%currentPosition = counter%currentPosition + 1
     end if
-    counter%average = counter%average - counter%history(counter%currentPosition)/counter%historyLength
-    counter%history(counter%currentPosition) = val
-    counter%average = counter%average + val/counter%historyLength
+    if (.not.counter%historyIsFull) then
+      counter%history(counter%currentPosition) = val
+      counter%average =  real(sum(counter%history), dp)/counter%currentPosition
+    else
+      counter%average = counter%average - real(counter%history(counter%currentPosition), dp)/counter%historyLength
+      counter%history(counter%currentPosition) = val
+      counter%average = counter%average + real(val, dp)/counter%historyLength
+    end if 
 
   end subroutine addParticleCount
 

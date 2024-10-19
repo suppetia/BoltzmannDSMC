@@ -27,14 +27,19 @@ contains
     real(sp) :: rnd
 
     !> number of collisions in the cell = 1/2 * N N_avg F_N (sigma_T c_r)_max dt/V_c
-    ! nCollisions = .5_dp * cell%numberOfElements * cell%stats%particleCounter%average &
-    !   * params%F_N * cell%stats%maxSigmaC * params%dt &
-    !   / (params%V_c * cellWidth(cell) * cellHeight(cell)) 
-    nCollisions = .5_dp * cell%numberOfElements * cell%numberOfElements &
+    nCollisions = .5_dp * cell%numberOfElements * cell%stats%particleCounter%average &
       * params%F_N * cell%stats%maxSigmaC * params%dt &
       / (params%V_c * cellWidth(cell) * cellHeight(cell)) 
+    ! nCollisions = .5_dp * cell%numberOfElements * cell%numberOfElements &
+    !   * params%F_N * cell%stats%maxSigmaC * params%dt &
+    !   / (params%V_c * cellWidth(cell) * cellHeight(cell)) 
 
-    ! print *, nCollisions
+    if (nCollisions < 0) then
+      return
+    end if
+    ! print *, "N_col", nCollisions
+    ! print *, cell%numberOfElements
+    ! print *, cell%stats%particleCounter%average
     ! print *, params%F_N
     ! print *, cell%stats%maxSigmaC
     ! print *, params%dt
@@ -92,6 +97,7 @@ contains
 
       if (p1 >= cell%numberOfElements-1) exit
     end do
+    ! print *, "N_col", nCollisions, nCurrentCollisions
     nCollisions = nCurrentCollisions
 
   end subroutine selectCollisionPairs
@@ -141,7 +147,9 @@ contains
 
     end do
 
-    deallocate(pairs)
+    if (associated(pairs)) then
+      deallocate(pairs)
+    end if
   end subroutine collide
 
   
@@ -153,11 +161,13 @@ contains
     type(NodeStack) :: stack
     type(QuadTreeNode), pointer :: n
 
-    integer(i4) :: numLeaves, i, j
+    integer(i4) :: numLeaves, i, j, k, numCollisions
 
     type(ParticleList) :: list
     real(dp), dimension(5) :: particle
     real(dp) :: x, y, width, height
+
+    ! integer, dimension(tree%params%maxElementsPerCell) :: collidedParticles
 
     call initializeStack(stack)
     call initializeParticleList(list)
@@ -174,6 +184,27 @@ contains
       n%elements(1:5*j:5) = n%elements(1:5*j:5) + dt * n%elements(3:5*j:5)
       !> update y components: y_new = y + dt*v_y
       n%elements(2:5*j:5) = n%elements(2:5*j:5) + dt * n%elements(4:5*j:5)
+      
+      ! collidedParticles(:) = -1
+      call collideWithStructures(n, tree%params)!, collidedParticles)
+      ! numCollisions = 0
+      ! do j = 1,tree%params%maxElementsPerCell
+      !   if (collidedParticles(j) == -1) then
+      !     exit
+      !   end if
+      !   numCollisions = numCollisions + 1
+      ! end do
+      ! !> check if the particle collided with a structure
+      ! !> in that case move it again in the new direction
+      ! !> TODO: think whether this is fine
+      ! !> idea: it's okay because the mean distance should be have the distance from the structure
+      ! !> averaged over many particles
+      ! do j = 1, numCollisions
+      !   k = collidedParticles(j)
+      !   print *, k
+      !   n%elements(5*k-4) = n%elements(5*k-4) + dt * n%elements(5*k-2)
+      !   n%elements(5*k-3) = n%elements(5*k-3) + dt * n%elements(5*k-1)
+      ! end do
 
       !> check if the particle is still in the same cell after the location update
       x = cellX(n) * tree%width
@@ -183,6 +214,7 @@ contains
       do j = n%numberOfElements, 1, -1
         !> iterate backwards because of how the particles are removed:
         !> if the particle at index i is removed, it is replaced with the last particle
+
         if ( &
           n%elements(5*j-4) < x .or. &
           n%elements(5*j-4) >= x+width .or. &
@@ -218,5 +250,142 @@ contains
 
     call deleteParticleList(list)
   end subroutine moveParticles
+
+  subroutine collideWithStructures(cell, params)
+    implicit none
+    type(QuadTreeNode), pointer, intent(inout) :: cell
+    type(SimulationParameters), intent(in) :: params
+    integer :: k
+
+    integer :: i, j
+    real(dp) :: v_x,v_y, s_x,s_y, s, t
+    real(dp), dimension(:), pointer :: collisionDistance !> store the distance to the nearest structure
+
+    k = 0
+
+    if (.not.associated(cell%structures)) then
+      return
+    end if
+
+    allocate(collisionDistance(size(cell%structures, 1)))
+
+    do i = 1, cell%numberOfElements
+      do j = 1, size(cell%structures, 1)
+        !> find the distance to the structure as the projection on the normal vector
+        ! print *, cell%elements(5*i-4:5*i)
+        ! print *, cell%structures(j, :)
+        collisionDistance(j) = (cell%elements(5*i-4) - cell%structures(j,1)) * cell%structures(j,5) &
+          + (cell%elements(5*i-3)-cell%structures(j,2)) * cell%structures(j,6)
+      end do
+
+      if (all(collisionDistance <= 0)) then
+        j = maxloc(collisionDistance, 1)
+        v_x = cell%elements(5*i-2)
+        v_y = cell%elements(5*i-1)
+        !> update the velocity of the particle as v <- v - 2(v*n)n
+        cell%elements(5*i-2) = v_x - 2*(v_x*cell%structures(j, 5) + v_y*cell%structures(j,6)) * cell%structures(j,5)
+        cell%elements(5*i-1) = v_y - 2*(v_x*cell%structures(j, 5) + v_y*cell%structures(j,6)) * cell%structures(j,6)
+
+        !> find the intersection of the structure and the particle trajectory
+        s_x = cell%structures(j,3) - cell%structures(j,1)
+        s_y = cell%structures(j,4) - cell%structures(j,2)
+        ! !> denominator
+        ! if (abs(d) < 1e-10) then
+        !   t = (cell%elements(5*i-3)-cell%structures(j,2)-(cell%elements(5*i-4)-cell%structures(j,1))/s_x*s_y)/d
+        ! else
+        !   !> in this case the particle might be trapped
+        !   t = params%dt * 1.0001_dp
+        ! end if
+
+        if (abs(s_x) < 1e-10_dp) then
+          !> use a slight offset to move the particle into the right cell
+          t = (cell%structures(j,1) - cell%elements(5*i-4))/v_x! * 1.00000001_dp
+        else
+          t = (cell%elements(5*i-3)-cell%structures(j,2)-(cell%elements(5*i-4)-cell%structures(j,1))/s_x*s_y)/(v_x*s_y/s_x-v_y)
+        end if
+
+        ! t = (cell%elements(5*i-3)-cell%structures(j,2)-(cell%elements(5*i-4)-cell%structures(j,1))/s_x*s_y)/(v_x*s_y/s_x-v_y)
+        ! print *, "s", collisionDistance(j)
+        ! print *, "t", t
+        
+        cell%elements(5*i-4) = cell%elements(5*i-4) + t*v_x - t*cell%elements(5*i-2)
+        cell%elements(5*i-3) = cell%elements(5*i-3) + t*v_y - t*cell%elements(5*i-1)
+        
+        ! print *, "s_after", (cell%elements(5*i-4) - cell%structures(j,1)) * cell%structures(j,5) &
+        !   + (cell%elements(5*i-3)-cell%structures(j,2)) * cell%structures(j,6)
+
+      end if
+    end do
+
+    deallocate(collisionDistance)
+
+
+    ! if (associated(cell%structures)) then
+    !   do j = 1, cell%numberOfElements
+    !     do i = 1, size(cell%structures, 1)
+    !       !> check whether the particle collided with the structure using the cross-product
+    !       ! s_x = (cell%elements(5*j-4) - cell%structures(i,1))
+    !       ! s_y = (cell%elements(5*j-3) - cell%structures(i,2))
+    !       ! print *, s_x, s_y
+    !       ! s = sqrt(s_x**2+s_y**2)
+    !       s = (cell%elements(5*j-4)-cell%structures(i,1)) * cell%structures(i,5) &
+    !         + (cell%elements(5*j-3)-cell%structures(i,2)) * cell%structures(i,6)
+    !       print *, "s", s
+    !       if (s == 0._dp) then
+    !         collisionDistance(i) = 0._dp
+    !       else
+    !         collisionDistance(i) = s
+    !         ! collisionDistance(i) = -(s_x * (cell%structures(i,4)-cell%structures(i,2) &
+    !         !   - s_y * (cell%structures(i,3)-cell%structures(i,1))))/s
+    !
+    !       end if
+    !       ! print *, v_x,v_y,y_, cell%elements(5*j-2),cell%elements(5*j-1)
+    !     end do
+    !
+    !     print *, collisionDistance(:)
+    !     print *, collisionDistance <= 0
+    !     if (all(collisionDistance <= 0)) then
+    !       i = maxloc(collisionDistance, 1)
+    !       print *, cell%elements(5*j-4:5*j)
+    !       v_x = cell%elements(5*j-2)
+    !       v_y = cell%elements(5*j-1)
+    !       cell%elements(5*j-2) = v_x - 2*(cell%structures(i,5) * v_x + cell%structures(i,6)*v_y) * cell%structures(i,5)
+    !       cell%elements(5*j-1) = v_y - 2*(cell%structures(i,5) * v_x + cell%structures(i,6)*v_y) * cell%structures(i,6)
+    !
+    !       !> calculate the intersection point of the motion of the particle and the structure
+    !       !> based on https://paulbourke.net/geometry/pointlineplane/
+    !       t = ((cell%structures(i, 3)-cell%structures(i,1))*(cell%elements(5*j-3)-cell%structures(i,2)) &
+    !         - (cell%structures(i, 4)-cell%structures(i,2))*(cell%elements(5*j-4)-cell%structures(i,1))) &
+    !         / ((cell%structures(i, 4)-cell%structures(i,2)) * v_x - (cell%structures(i, 3)-cell%structures(i,1)) * v_y)
+    !       print *, "t", t
+    !
+    !       !> x_x = cell%elements(5*j-4), x_y = cell%elements(5*j-3)
+    !       !> v_x = cell%elements(5*j-2), v_y = cell%elements(5*j-1)
+    !       !> a_x = cell%structures(i,1), a_y = cell%structures(i,2)
+    !       !> b_x = cell%structures(i,3), b_y = cell%structures(i,4)
+    !       !> s_x = b_x-a_x, s_y = b_y - a_y
+    !       s_x = cell%structures(i,3) - cell%structures(i,1)
+    !       s_y = cell%structures(i,4) - cell%structures(i,2)
+    !       t = (cell%elements(5*j-3)-cell%structures(i,2)-(cell%elements(5*j-4)-cell%structures(i,1))/s_x*s_y)/(v_x*s_y/s_x-v_y)
+    !       print *, "t2", t
+    !       t = abs(t)
+    !
+    !       if (t < 0) then
+    !         cell%elements(5*j-4) = cell%elements(5*j-4) - t*v_x !+ (params%dt-t) * cell%elements(5*j-2)
+    !         cell%elements(5*j-3) = cell%elements(5*j-3) - t*v_y !+ (params%dt-t) * cell%elements(5*j-1)
+    !       end if
+    !    
+    !       print *, cell%elements(5*j-4:5*j)
+    !       
+    !       k = k+1
+    !       ! collidedParticles(k) = j
+    !     end if
+    !   end do
+    !
+    !   deallocate(collisionDistance)
+    ! end if
+    
+
+  end subroutine collideWithStructures
 
 end module m_simulation

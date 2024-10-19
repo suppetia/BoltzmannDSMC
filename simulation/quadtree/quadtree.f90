@@ -1,11 +1,11 @@
 module m_quadtree
   use m_types, only: fp, pp, i4, dp, i8, i1, i2
-  use m_data_structures, only: ParticleAverageCounter, initializeParticleAverageCounter
-  use m_util, only: SimulationParameters
+  use m_data_structures, only: ParticleAverageCounter, initializeParticleAverageCounter, deleteParticleAverageCounter
+  use m_util, only: SimulationParameters, lineIntersection
   implicit none
 
   type :: CellStats
-    type(ParticleAverageCounter) :: particleCounter
+    type(ParticleAverageCounter), pointer :: particleCounter
     integer(i4), pointer :: N_avg !> average number of particles in the cell
 
     real(dp) :: maxSigmaC !> maxValue of sigma_T * c_r
@@ -16,9 +16,9 @@ module m_quadtree
     integer(pp) :: numberOfElements
 
     !> encoding for the position of the cell
-    !> 00 | 01
-    !> -------
     !> 10 | 11
+    !> -------
+    !> 00 | 01
     !> binary representation of each level
     !> the first level is stored on the most right bits progressing to the left
     !> in the bits 58-63 the level of the cell is stored (bit 64 is used for the sign to mark invalid values)
@@ -31,6 +31,11 @@ module m_quadtree
     !> whether a grid cell is allowed to be merged
     !> false if it is given from the structure
     logical :: isCollapsable = .true.
+
+    !> an structure is a line reaching from one end of the cell to another
+    !> format: [left_x, left_y, right_x, right_y, sin(angle), cos(angle)]
+    !> multiple lines are possible
+    real(dp), pointer, dimension(:,:) :: structures => null()
 
     real(dp), pointer, dimension(:) :: elements => null()
     type(QuadTreeNode), pointer, dimension(:) :: children => null()
@@ -460,28 +465,38 @@ contains
 
     allocate(stats)
     call initializeParticleAverageCounter(stats%particleCounter, historyLength)
+    ! print *, allocated(stats%particleCounter%history), size(stats%particleCounter%history, 1)
     stats%maxSigmaC = 1e-16
 
   end subroutine initializeCellStats
 
+  subroutine deleteCellStats(stats)
+    implicit none
+    type(CellStats), pointer, intent(inout):: stats
+
+    call deleteParticleAverageCounter(stats%particleCounter)
+
+    deallocate(stats)
+  end subroutine deleteCellStats
+
 
   !> initialize a new QuadTree
-  subroutine initializeQuadTree(tree, maxDepth, maxElementsPerCell, width, height, params)
+  subroutine initializeQuadTree(tree, maxDepth, params)
     implicit none
     integer, intent(in) :: maxDepth
-    integer, intent(in) :: maxElementsPerCell
-    real(dp), intent(in) :: width, height
     type(SimulationParameters), intent(in) :: params
   
-    type(QuadTree), intent(out) :: tree
+    type(QuadTree), pointer, intent(out) :: tree
+    
+    tree%params = params 
 
-    tree%width = width
-    tree%height = height
+    tree%width = params%width
+    tree%height = params%height
   
     allocate(tree%root)
     tree%root%cellID = 0_i8
     tree%root%numberOfElements = 0
-    allocate(tree%root%elements(5*maxElementsPerCell))
+    allocate(tree%root%elements(5*params%maxElementsPerCell))
     tree%root%elements(:) = -1
     nullify(tree%root%children)
     call initializeCellStats(tree%root%stats, params%cellHistoryLength)
@@ -490,10 +505,9 @@ contains
     call initializeLinkedList(tree%leafs)
     call insertAfter(tree%leafs, tree%root)
 
-    tree%params = params 
   
     tree%maxDepth = maxDepth
-    tree%maxElementsPerCell = maxElementsPerCell
+    tree%maxElementsPerCell = params%maxElementsPerCell
     ! call initializeQuadTreeNode(tree%root, maxElementsPerCell, 0._dp, 0._dp, width, height)
   end subroutine initializeQuadTree
 
@@ -504,17 +518,23 @@ contains
     type(QuadTree), pointer, intent(inout) :: tree
 
     real(dp) :: newWidth, newHeight, x,y
+    ! real(dp) :: obsMidX, obsMidY
+    integer :: structureDirectionX, structureDirectionY
+    real(dp), dimension(2) :: verticalIntersection, horizontalIntersection
+    real(dp), dimension(:, :, :), allocatable :: tmpStructures
+    integer, dimension(4) :: numStructures
     integer :: i, j
     integer, dimension(4) :: idx
     integer(i8) :: level, childLevel
 
     allocate(node%children(4))
-    idx(:) = 0
 
     newWidth = cellWidth(node) * tree%width / 2
     newHeight = cellHeight(node) * tree%height / 2
     x = cellX(node) * tree%width
     y = cellY(node) * tree%height
+
+    ! print *, newHeight, newWidth
 
     level = cellLevel(node)
     childLevel = ibits(node%cellID, 58, 6) + 1_i8
@@ -534,7 +554,146 @@ contains
       node%children(i)%stats%particleCounter%currentPosition = node%stats%particleCounter%currentPosition
     end do
 
+    ! !> split the structures
+    ! if (associated(node%structures)) then
+    !   do i = 0, size(node%structures/5)-1
+    !     !> find the y coordinate of the crossing
+    !     obsMidY = (node%structures(5*i+4)-node%structures(5*i+2))/(node%structures(5*i+3)-node%structures(5*i+1)) &
+    !       * (x+newWidth - node%structures(5*i+1)) + node%structures(5*i+2)
+    !     obsMidX = (node%structures(5*i+3)-node%structures(5*i+1))/(node%structures(5*i+4)-node%structures(5*i+2)) &
+    !       * (y+newHeight - node%structures(5*i+2)) + node%structures(5*i+4)
+    !  
+    !     if (.not.all(obsMidX == -1))
+    !   
+    !     end if
+    !   end do
+    ! end if
 
+    idx(:) = 1
+    if (associated(node%structures)) then
+      allocate(tmpStructures(4, size(node%structures,1), 6))
+      numStructures = 0
+      do i = 1, size(node%structures,1)
+    
+        !> store the orientation of the structure line to find the corresponding subcells later
+        if (node%structures(i, 1) - node%structures(i, 3) < 0._dp) then
+          structureDirectionX = 1
+        else
+          structureDirectionX = -1
+        end if
+        if (node%structures(i, 2) - node%structures(i, 4) < 0._dp) then
+          structureDirectionY = 1
+        else
+          structureDirectionY = -1
+        end if
+        
+        ! !> in the case that a structure is exactly aligning with the middle
+        ! !> store the structure for both halfs
+        ! if (all(abs(node%structure(:4) - [x+newWidth, y, x+newWidth, y+newHeight*2]) < 1e-10)) then
+        !   !> if it aligns with the vertical line
+        !   do j = 1,2
+        !   tmpStructures(j, idx(j), :) = 
+    
+        verticalIntersection = lineIntersection([x+newWidth, y, x+newWidth, y+newHeight*2], node%structures(i, :4))
+        horizontalIntersection = lineIntersection([x, y+newHeight, x+newWidth*2, y+newHeight], node%structures(i, :4))
+        ! print *, node%structures(i, :4)
+        ! print *, [x+newWidth, y, x+newWidth, y+newHeight*2]
+        ! print *, [x, y+newHeight, x+newWidth*2, y+newHeight]
+        ! print *, verticalIntersection(:)
+        ! print *, horizontalIntersection(:)
+    
+        !> determine the subcells which the line crosses
+        if (node%structures(i, 1) >= x + newWidth) then
+          j = 2
+        else
+          j = 1
+        end if
+        if (node%structures(i,2) >= y + newHeight) then
+          j = j + 2
+        end if
+        tmpStructures(j, idx(j), 1:2) = node%structures(i,1:2)
+    
+        if (any(verticalIntersection /= -1._dp)) then
+          if (any(horizontalIntersection /= -1._dp)) then
+            if ((verticalIntersection(1)-horizontalIntersection(1))*structureDirectionX < 0) then
+              !> if the vertical intersection happens first
+              tmpStructures(j,idx(j),3:4) = verticalIntersection
+              tmpStructures(j,idx(j),5:6) = node%structures(i,5:6)
+              idx(j) = idx(j) + 1
+              j = j + structureDirectionX
+              tmpStructures(j,idx(j),1:2) = verticalIntersection
+    
+              tmpStructures(j,idx(j),3:4) = horizontalIntersection
+              tmpStructures(j,idx(j),5:6) = node%structures(i,5:6)
+              idx(j) = idx(j) + 1
+              j = j + 2*structureDirectionY
+              tmpStructures(j,idx(j),1:2) = horizontalIntersection
+    
+            else
+              !> if the horizontalIntersection happens first
+              tmpStructures(j,idx(j),3:4) = horizontalIntersection
+              tmpStructures(j,idx(j),5:6) = node%structures(i,5:6)
+              idx(j) = idx(j) + 1
+              j = j + 2*structureDirectionY
+              tmpStructures(j,idx(j),1:2) = horizontalIntersection
+             
+              tmpStructures(j,idx(j),3:4) = verticalIntersection
+              tmpStructures(j,idx(j),5:6) = node%structures(i,5:6)
+              idx(j) = idx(j) + 1
+              j = j + structureDirectionX
+              tmpStructures(j,idx(j),1:2) = verticalIntersection
+            end if
+          else
+            !> only the verticalIntersection happens
+            tmpStructures(j,idx(j),3:4) = verticalIntersection
+            tmpStructures(j,idx(j),5:6) = node%structures(i,5:6)
+            idx(j) = idx(j) + 1
+            j = j + structureDirectionX
+            tmpStructures(j,idx(j),1:2) = verticalIntersection
+          end if
+        elseif (any(horizontalIntersection /= -1._dp)) then
+          !> only the horizontalIntersection happens
+          tmpStructures(j,idx(j),3:4) = horizontalIntersection
+          tmpStructures(j,idx(j),5:6) = node%structures(i,5:6)
+          idx(j) = idx(j) + 1
+          j = j + 2*structureDirectionY
+          tmpStructures(j,idx(j),1:2) = horizontalIntersection
+        end if
+        tmpStructures(j,idx(j),3:4) = node%structures(i, 3:4)
+        tmpStructures(j,idx(j),5:6) = node%structures(i,5:6)
+        idx(j) = idx(j) + 1
+    
+        ! if (any(verticalIntersection /= -1._dp)) then
+        !   if (any(horizontalIntersection /= -1._dp)) then
+        !     if (node%structures(i))
+        !
+        !
+        !     if (verticalIntersection(2) > x + newHeight) then
+        !
+        !
+        !     end if
+        !
+        !   else
+        !
+        !   end if
+        ! elseif (any(horizontalIntersection /= -1)) then
+        !
+        ! else
+        !
+        ! end if
+      end do
+    
+      do j = 1,4
+        if (idx(j)-1 > 0) then
+          allocate(node%children(j)%structures(idx(j)-1,6))
+          node%children(j)%structures(:idx(j)-1, :) = tmpStructures(j, :idx(j)-1, :)
+        end if
+      end do
+      ! print *, tmpStructures
+    end if
+
+
+    idx(:) = 0
     do i = 0,node%numberOfElements-1
       !> find the child where to sort the element in
       if (node%elements(5*i+1) < x + newWidth) then
@@ -585,14 +744,18 @@ contains
 
     do i=1,4
       childNode => node%children(i)
+      node%stats%particleCounter%history(:) = node%stats%particleCounter%history(:) + childNode%stats%particleCounter%history(:)
+      node%stats%particleCounter%average = node%stats%particleCounter%average + childNode%stats%particleCounter%average
       do j=0,childNode%numberOfElements-1
         node%elements(5*idx+1:5*(idx+1)) = childNode%elements(5*j+1:5*(j+1))
-        node%stats%particleCounter%history(:) = node%stats%particleCounter%history(:) + childNode%stats%particleCounter%history(:)
-        node%stats%particleCounter%average = node%stats%particleCounter%average + childNode%stats%particleCounter%average
         idx = idx+1
       end do
       deallocate(childNode%elements)
-      deallocate(childNode%stats)
+      call deleteCellStats(childNode%stats)
+      ! deallocate(childNode%stats)
+      if (associated(childNode%structures)) then
+        deallocate(childNode%structures)
+      end if
       ! deallocate(childNode)
     end do
     node%numberOfElements = idx
@@ -708,6 +871,10 @@ contains
     type(QuadTree), pointer, intent(inout) :: tree
     integer :: i
     type(QuadTreeNode), pointer :: nextNode => null()
+
+    ! print *, node%numberOfElements
+    ! write (*, "(B64.64)") node%cellID
+    ! print *, size(node%elements, 1)
 
     if (node%numberOfElements >= 0) then
       if (node%numberOfElements == size(node%elements, 1)/5) then

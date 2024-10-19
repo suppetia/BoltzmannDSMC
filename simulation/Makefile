@@ -26,8 +26,8 @@ ARFLAGS =
 # export all variables to sub-Makefiles
 export
 
-build: CFLAGS += -O2
-build: LDFLAGS += -O2
+build: CFLAGS += -O3 -ftree-vectorize
+build: LDFLAGS += -O3
 build: $(MAIN).out
 
 debug: CFLAGS += -Wall -g -fbounds-check
