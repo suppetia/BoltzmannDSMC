@@ -2,9 +2,6 @@
 
 MAIN=test_basic_features
 
-OMP_NUM_THREADS=4
-
-
 OBJECTS=simulation.o
 
 MODDIR=$(shell pwd)/include

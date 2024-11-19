@@ -59,15 +59,15 @@ contains
     intersection = line1(:2) + u1 * (line1(3:4)-line1(:2))
   end function lineIntersection
 
-  !> sort the second dimension arr1 based on arr2
+  !> sort the first dimension arr1 based on arr2
   !> based on https://rosettacode.org/wiki/Sorting_algorithms/Merge_sort#Fortran
   subroutine sort(arr1, arr2)
     implicit none
     real(fp), dimension(:,:), pointer, intent(inout) :: arr1
     integer(i4), dimension(:), pointer, intent(inout) :: arr2
 
-    real(fp), dimension(5, (size(arr1, 2)+1)/2) :: work1
-    integer(i4), dimension((size(arr1, 2)+1)/2) :: work2
+    real(fp), dimension((size(arr1, 1)+1)/2, 5) :: work1
+    integer(i4), dimension((size(arr1, 1)+1)/2) :: work2
 
     call conditionedMergeSort(arr1, arr2, work1, work2)
   end subroutine sort 
@@ -88,19 +88,19 @@ contains
       if (i <= size(A2) .and. j <= size(B2)) then
         if (A2(i) <= B2(j)) then
           C2(k) = A2(i)
-          C1(:, k) = A1(:, i)
+          C1(k, :) = A1(i, :)
           i = i+1
         else
           C2(k) = B2(j)
-          C1(:, k) = B1(:, j)
+          C1(k, :) = B1(j, :)
           j = j+1
         end if 
       else if (i <= size(A2)) then
-        C1(:, k) = A1(:, i)
+        C1(k, :) = A1(i, :)
         C2(k) = A2(i)
         i = i+1
       else if (j <= size(B2)) then
-        C1(:, k) = B1(:,j)
+        C1(k, :) = B1(j, :)
         C2(k) = B2(j)
         j = j+1
       end if 
@@ -122,20 +122,20 @@ contains
     else if (size(arr2) == 2) then
       if (arr2(1) > arr2(2)) then
         !> swap two elements
-        tmp1 = arr1(:, 1)
+        tmp1 = arr1(1, :)
         tmp2 = arr2(1)
-        arr1(:, 1) = arr1(:, 2)
+        arr1(1, :) = arr1(2, :)
         arr2(1) = arr2(2)
-        arr1(:, 2) = tmp1
+        arr1(2, :) = tmp1
         arr2(2) = tmp2
       end if
     else
-      call conditionedMergeSort(arr1(:, :half), arr2(:half), work1, work2)
-      call conditionedMergeSort(arr1(:, half+1:), arr2(half+1:), work1, work2)
+      call conditionedMergeSort(arr1(:half, :), arr2(:half), work1, work2)
+      call conditionedMergeSort(arr1(half+1:, :), arr2(half+1:), work1, work2)
       if (arr2(half) > arr2(half+1)) then
-        work1(:, :half) = arr1(:, :half)
+        work1(:half, :) = arr1(:half, :)
         work2(:half) = arr2(:half)
-        call conditionedMerge(work1(:, :half), arr1(:, half+1:), arr1, work2(:half), arr2(half+1:), arr2)
+        call conditionedMerge(work1(:half, :), arr1(half+1:, :), arr1, work2(:half), arr2(half+1:), arr2)
       end if 
     end if 
   end subroutine conditionedMergeSort 
@@ -180,13 +180,13 @@ contains
   !     if (arr2(i) <= arr2(j)) then
   !       i = i + 1
   !     else
-  !       temp1 = arr1(:,j)
+  !       temp1 = arr1(j, :)
   !       temp2 = arr2(j)
   !       do k = j, i+1, -1
-  !         arr1(:, k) = arr1(:, k-1)
+  !         arr1(k, :) = arr1(k-1, :)
   !         arr2(k) = arr2(k-1)
   !       end do
-  !       arr1(:, i) = temp1
+  !       arr1(i, :) = temp1
   !       arr2(i) = temp2
   !       i = i + 1
   !       tmpMid = tmpMid + 1

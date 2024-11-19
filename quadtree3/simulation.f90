@@ -53,10 +53,10 @@ contains
       numParticles = tree%particleNumbers(i)
       idx = tree%particleStartIndices(i)
       !> update x and y position components
-      tree%particles(1,idx:idx+numParticles-1) = tree%particles(1,idx:idx+numParticles-1)&
-        + params%dt * tree%particles(3,idx:idx+numParticles-1) 
-      tree%particles(2,idx:idx+numParticles-1) = tree%particles(2,idx:idx+numParticles-1)&
-        + params%dt * tree%particles(4,idx:idx+numParticles-1) 
+      tree%particles(idx:idx+numParticles-1, 1) = tree%particles(idx:idx+numParticles-1, 1)&
+        + params%dt * tree%particles(idx:idx+numParticles-1, 3) 
+      tree%particles(idx:idx+numParticles-1, 2) = tree%particles(idx:idx+numParticles-1, 2)&
+        + params%dt * tree%particles(idx:idx+numParticles-1, 4) 
 
       call collideWithStructures(tree, i)
 
@@ -70,12 +70,12 @@ contains
       !> iterate backwards because if a particle is remove the last valid particle copied inplace
         !> TODO: add target cell hints?
         if (&
-          tree%particles(1, idx+j) < x .or. tree%particles(1, idx+j) >= x+width .or. &
-          tree%particles(2, idx+j) < y .or. tree%particles(2, idx+j) >= y+height &
+          tree%particles(idx+j, 1) < x .or. tree%particles(idx+j, 1) >= x+width .or. &
+          tree%particles(idx+j, 2) < y .or. tree%particles(idx+j, 2) >= y+height &
         ) then
-          call append(list, tree%particles(:, idx+j))
+          call append(list, tree%particles(idx+j, :))
           numParticles = numParticles - 1
-          tree%particles(:, idx+j) = tree%particles(:, idx+numParticles)
+          tree%particles(idx+j, :) = tree%particles(idx+numParticles, :)
           counter = counter + 1
         end if 
       end do 
@@ -85,7 +85,7 @@ contains
     !> TODO: determine the actual cells using hints
     ! allocate(leafIdx(list%numParticles))
 
-    particles => list%particles(:, :list%numParticles)
+    particles => list%particles(:list%numParticles, :)
     call findParticleCells(tree, particles, leafIdx)
     call insertParticles(tree, particles, leafIdx)
 
@@ -113,36 +113,36 @@ contains
     numStructures = tree%structures(nodeIdx)%numStructures
 
     numParticles = tree%particleNumbers(nodeIdx)
-    particles => tree%particles(:, tree%particleStartIndices(nodeIdx):tree%particleStartIndices(nodeIdx)+numParticles-1)
+    particles => tree%particles(tree%particleStartIndices(nodeIdx):tree%particleStartIndices(nodeIdx)+numParticles-1, :)
 
     allocate(collisionDistance(numParticles, numStructures))
 
     do i = 1,numStructures
-      collisionDistance(:, i) = (particles(1,:) - structures(1,i)) * structures(5,i) &
-        + (particles(2,:) - structures(2,i)) * structures(6,i)
+      collisionDistance(:, i) = (particles(:, 1) - structures(1,i)) * structures(5,i) &
+        + (particles(:, 2) - structures(2,i)) * structures(6,i)
     end do 
 
     do i = 1, numParticles
       if (all(collisionDistance(i, :) <= 0)) then
         j = maxloc(collisionDistance(i, :), 1) !> find index of closest structure
-        v_x = particles(3,i)
-        v_y = particles(4,i)
+        v_x = particles(i, 3)
+        v_y = particles(i, 4)
         !> update the velocity of the particle as v <- v - 2(v*n)n
         vdotn = 2*(v_x*structures(5,j) + v_y*structures(6,j))
-        particles(3,i) = v_x - vdotn * structures(5,j)
-        particles(4,i) = v_y - vdotn * structures(6,j)
+        particles(i, 3) = v_x - vdotn * structures(5,j)
+        particles(i, 4) = v_y - vdotn * structures(6,j)
         !> find the intersection of the structure and the particle trajectory
         s_x = structures(3,j) - structures(1,j)
         s_y = structures(4,j) - structures(2,j)
 
         if (abs(s_x) < 1e-10_fp) then
-          t = (structures(1,j)-particles(1,i))/v_x
+          t = (structures(1,j)-particles(i, 1))/v_x
         else
-          t = (particles(2, i) - structures(2,j) - (particles(1,i)-structures(1,j))/s_x*s_y)/(v_x*s_y/s_x-v_y)
+          t = (particles(i, 2) - structures(2,j) - (particles(i, 1)-structures(1,j))/s_x*s_y)/(v_x*s_y/s_x-v_y)
         end if 
 
-        particles(1,i) = particles(1,i) + t*(v_x - particles(3,i))
-        particles(2,i) = particles(2,i) + t*(v_y - particles(4,i))
+        particles(i, 1) = particles(i, 1) + t*(v_x - particles(i, 3))
+        particles(i, 2) = particles(i, 2) + t*(v_y - particles(i, 4))
       end if 
     end do 
     deallocate(collisionDistance)
@@ -167,7 +167,7 @@ contains
 
     idx = node%nodeIdx
     numParticles = tree%particleNumbers(idx)
-    particles => tree%particles(:, tree%particleStartIndices(idx):tree%particleStartIndices(idx)+numParticles-1)
+    particles => tree%particles(tree%particleStartIndices(idx):tree%particleStartIndices(idx)+numParticles-1, :)
 
     !> number of collisions in the cell = 1/2 * N N_avg F_N (sigma_T, c_r)_max dt/V_c
     nCollisions = .5_fp * numParticles * node%stats%particleCounter%average &
@@ -191,14 +191,14 @@ contains
       call random_number(rnd)
       p2 = int(rnd*(numParticles-p1))+p1
 
-      tmpParticle = particles(:,p2)
-      particles(:, p2) = particles(:, p1)
-      particles(:, p1) = tmpParticle
+      tmpParticle = particles(p2, :)
+      particles(p2, :) = particles(p1, :)
+      particles(p1, :) = tmpParticle
 
       do p2 = p1+1, numParticles
-        c_r = norm2(abs(particles(3:, p1)-particles(3:, p2)))
+        c_r = norm2(abs(particles(p1, 3:)-particles(p2, 3:)))
         !> TODO: change to actual types
-        sigma = sigma_T(particles(:, p1), 1_i1, particles(:, p2), 1_i1, simParams)
+        sigma = sigma_T(particles(p1, :), 1_i1, particles(p2, :), 1_i1, simParams)
 
         call random_number(rnd)
         !> the collision occurs with probability c_r*sigma_T/(c_r*sigma_T)_max
@@ -206,9 +206,9 @@ contains
 
           if (p2 .ne. p1+1) then
             !> swap the particle p2 to position p1+1 to avoid that it is respected in other collisions
-            tmpParticle = particles(:,p2)
-            particles(:, p2) = particles(:, p1)
-            particles(:, p1) = tmpParticle
+            tmpParticle = particles(p2, :)
+            particles(p2, :) = particles(p1, :)
+            particles(p1, :) = tmpParticle
           end if
           !> store the index of the first collision particle
           !> the collision partner is at the next position
@@ -247,17 +247,17 @@ contains
 
     idx = node%nodeIdx
     numParticles = tree%particleNumbers(idx)
-    particles => tree%particles(:, tree%particleStartIndices(idx):tree%particleStartIndices(idx)+numParticles-1)
+    particles => tree%particles(tree%particleStartIndices(idx):tree%particleStartIndices(idx)+numParticles-1, :)
 
     do i = 1,numCollisions
       p1 = pairs(i)
       p2 = pairs(i) + 1
-      vecC_r(:) = particles(3:, p1) - particles(3:, p2)
+      vecC_r(:) = particles(p1, 3:) - particles(p2, 3:)
       c_r = norm2(vecC_r(:))
       m1 = simParams%m(1) !> TODO: look up the type of a particle
       m2 = simParams%m(1)
       
-      vecC_m(:) = (m1*particles(3:, p1) + m2*particles(3:, p2))/(m1+m2)
+      vecC_m(:) = (m1*particles(p1, 3:) + m2*particles(p2, 3:))/(m1+m2)
 
       !> use (V)HS logic (isotropic deflection)
       !> generate random deflection angles
@@ -272,8 +272,8 @@ contains
       vecNewC_r(3) = c_r * s_chi * sin(eps)
 
       !> update the velocity components after the collision
-      particles(3:, p1) = vecC_m(:) + m2/(m1+m2) * vecNewC_r(:)
-      particles(3:, p2) = vecC_m(:) - m1/(m1+m2) * vecNewC_r(:)
+      particles(p1, 3:) = vecC_m(:) + m2/(m1+m2) * vecNewC_r(:)
+      particles(p2, 3:) = vecC_m(:) - m1/(m1+m2) * vecNewC_r(:)
     end do
 
     if (associated(pairs)) then

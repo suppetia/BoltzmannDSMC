@@ -47,16 +47,16 @@ contains
         numParticles = numParticles + num
         particleStartPosition(i+1:) = particleStartPosition(i+1:) + num
       end do 
-      allocate(matrix(5,numParticles))
+      allocate(matrix(numParticles,5))
       !> TODO: can be parallelized
       do i = 1, tree%leafNumber
         num = tree%particleNumbers(i)
         idx1 = tree%particleStartIndices(i)
         idx2 = particleStartPosition(i)
-        matrix(:, idx2:idx2+num-1) = tree%particles(:, idx1:idx1+num-1)
+        matrix(idx2:idx2+num-1, :) = tree%particles(idx1:idx1+num-1, :)
       end do
       
-      call writeRealMatrixToH5Dataset(filename, datasetName//"_particles", matrix, numParticles, 5, error)
+      call writeRealMatrixToH5Dataset(filename, datasetName//"_particles", matrix, 5, numParticles, error)
       deallocate(matrix)
       deallocate(particleStartPosition)
     end if 
@@ -136,7 +136,7 @@ contains
     allocate(tree%particleNumbers(nLeafs))
     tree%particleNumbers = 0
     allocate(tree%particleStartIndices(nLeafs))
-    allocate(tree%particles(5, params%elementChunkSize * nLeafs))
+    allocate(tree%particles(params%elementChunkSize * nLeafs, 5))
     allocate(tree%particleTypes(params%elementChunkSize * nLeafs))
     do k = 1,nLeafs 
       call pop(stack, n)

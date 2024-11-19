@@ -34,7 +34,7 @@ def read_particle_matrix(filename, datasetID):
     data = hf.get(f"{int(datasetID):05d}_particles")
     if data is None:
         return np.array([[]])
-    return np.array(data[...].T) # transpose since fortran matrices are stored columnwise
+    return np.array(data) # transpose since fortran matrices are stored columnwise
 
 def get_grid_and_particles(cell_matrix, particle_matrix):
     patches = []

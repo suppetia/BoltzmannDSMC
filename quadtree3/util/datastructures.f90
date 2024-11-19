@@ -72,7 +72,7 @@ contains
 
     list%numParticles = 0
     list%length = list%chunksize
-    allocate(list%particles(5,list%length))
+    allocate(list%particles(list%length, 5))
   end subroutine initializeParticleList
 
   subroutine extendParticleListLength(list)
@@ -84,7 +84,7 @@ contains
     !> temporarily copy the current particles to tmp
     tmp => list%particles
     nullify(list%particles)
-    allocate(list%particles(5,list%length + list%chunksize))
+    allocate(list%particles(list%length + list%chunksize, 5))
 
 
     ! !> temporarily copy the current particles to tmp
@@ -95,7 +95,7 @@ contains
     ! allocate(list%particles(5,list%length + list%chunksize))
 
     !> copy the particles back to the particles array
-    list%particles(:, 1:list%length) = tmp(:, :)
+    list%particles(1:list%length,:) = tmp(:, :)
     list%length = list%length + list%chunksize
 
     deallocate(tmp)
@@ -122,7 +122,7 @@ contains
     end if
 
     list%numParticles = list%numParticles + 1
-    list%particles(:,list%numParticles) = particle(:)
+    list%particles(list%numParticles,:) = particle(:)
   end subroutine
 
   subroutine appendMultiple(list, particles)
@@ -133,12 +133,12 @@ contains
     if (.not.associated(particles)) then
       return
     end if
-    if (list%numParticles + size(particles,2) >= list%length) then
+    if (list%numParticles + size(particles,1) >= list%length) then
       call extendParticleListLength(list)
     end if
 
-    list%particles(:,list%numParticles:list%numParticles+size(particles,2)) = particles(:,:)
-    list%numParticles = list%numParticles + size(particles,2) 
+    list%particles(list%numParticles:list%numParticles+size(particles,1),:) = particles(:,:)
+    list%numParticles = list%numParticles + size(particles,1) 
   end subroutine
 
 

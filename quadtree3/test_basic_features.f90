@@ -40,8 +40,8 @@ program test_basic_features
 
   allocate(simParams)
   simParams%dt = 1e-4_fp
-  simParams%numTimeSteps = 20
-  simParams%writeFrequency = 10
+  simParams%numTimeSteps = 2000
+  simParams%writeFrequency = 40
   allocate(simParams%m(1))
   simParams%m(1) = 1e-25
   allocate(simParams%d_ref(1))
@@ -64,7 +64,7 @@ program test_basic_features
   ! tree%leafNumber = 1
   ! allocate(tree%leafs(tree%leafNumber))
   ! tree%leafs(1)%node => tree%root
-  ! allocate(tree%particles(5, params%elementChunkSize))
+  ! allocate(tree%particles(params%elementChunkSize, 5))
   ! allocate(tree%particleTypes(params%elementChunkSize))
   ! allocate(tree%particleNumbers(tree%leafNumber))
   ! allocate(tree%particleStartIndices(tree%leafNumber))
@@ -73,23 +73,23 @@ program test_basic_features
   ! tree%particleStartIndices(1) = 1
 
   !
-  ! allocate(particles(5,1000000))
+  ! allocate(particles(1000000, 5))
   ! call random_number(particles)
-  ! particles(1,:) = particles(1,:) * tree%treeParams%width
-  ! particles(2,:) = particles(2,:) * tree%treeParams%height
-  ! ! allocate(particles(5,2))
+  ! particles(:, 1) = particles(:, 1) * tree%treeParams%width
+  ! particles(:, 2) = particles(:, 2) * tree%treeParams%height
+  ! ! allocate(particles(2, 5))
   ! ! particles = reshape([[.1, .1, 0.,0.,0.],[.4,.6,0.,0.,0.]], [5,2])
-  ! ! allocate(particles(5,1))
+  ! ! allocate(particles(1, 5))
   ! ! particles = reshape([[.1, .1, 0.,0.,0.]],[5,1])
   !
   !
   ! call findParticleCells(tree, particles, leafIdx)
   ! ! print *, leafIdx
-  ! ! print *, tree%particles(1,:)
+  ! ! print *, tree%particles(:, 1)
   ! call insertParticles(tree, particles, leafIdx)
-  ! print *, tree%particles(1,:)
+  ! print *, tree%particles(:, 1)
   ! if (associated(tree%leafs(1)%node%tmpParticles)) then
-  !   print *, tree%leafs(1)%node%tmpParticles(1,:)
+  !   print *, tree%leafs(1)%node%tmpParticles(:, 1)
   !   print *, size(tree%leafs(1)%node%tmpParticles, 2)
   !   print *, tree%leafs(1)%node%tmpParticleCount
   ! end if
@@ -126,23 +126,23 @@ program test_basic_features
   if (status == 0) close(1234, status='delete')
 
   call writeQuadTreeToHDF5(tree, trim(filebasename)//".h5", 0, storeParticles)
-  ! print *, particles(1, :)
+  ! print *, particles(:, 1)
 
 
-  allocate(particles(5,1000))
+  allocate(particles(1000,5))
   do it = 1, simParams%numTimeSteps
     print *, it
     call random_number(particles)
-    particles(1,:) = 0._fp
-    particles(2,:) = particles(2,:) * tree%treeParams%height
-    particles(3, :) = (10._fp + particles(3,:) * 10._fp) * (tree%treeParams%height+tree%treeParams%width)/2
-    particles(4:, :) = (particles(4:,:) -.5_fp) * 10._fp * (tree%treeParams%height+tree%treeParams%width)/2
+    particles(:, 1) = 0._fp
+    particles(:, 2) = particles(:, 2) * tree%treeParams%height
+    particles(:, 3) = (10._fp + particles(:, 3) * 10._fp) * (tree%treeParams%height+tree%treeParams%width)/2
+    particles(:, 4:) = (particles(:, 4:) -.5_fp) * 10._fp * (tree%treeParams%height+tree%treeParams%width)/2
     call findParticleCells(tree, particles, leafIdx)
     call insertParticles(tree, particles, leafIdx)
 
     ! call random_number(particles)
-    ! particles(1,:) = particles(1,:) * tree%treeParams%width
-    ! particles(2,:) = particles(2,:) * tree%treeParams%height
+    ! particles(:, 1) = particles(:, 1) * tree%treeParams%width
+    ! particles(:, 2) = particles(:, 2) * tree%treeParams%height
     ! call findParticleCells(tree, particles, leafIdx)
     ! call insertParticles(tree, particles, leafIdx)
     ! call moveParticles(tree, simParams)
