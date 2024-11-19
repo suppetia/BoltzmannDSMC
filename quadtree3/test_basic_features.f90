@@ -5,6 +5,8 @@ program test_basic_features
   use m_datastructures, only: QuadTreeParameters, SimulationParameters
   use m_quadtree_io, only: writeQuadTreeToHDF5, createTreeFromFile
   use m_simulation, only: moveParticles, step
+
+  use omp_lib
   implicit none
 
   type(QuadTree), pointer :: tree
@@ -22,6 +24,10 @@ program test_basic_features
   filebasename = "data/test_18"
   storeParticles = .true.
 
+  !$OMP PARALLEL
+  print *, "number of threads:", omp_get_num_threads()
+  !$OMP END PARALLEL
+
 
   !> initialize the quadtree-parameters
   allocate(params)
@@ -34,20 +40,21 @@ program test_basic_features
 
   allocate(simParams)
   simParams%dt = 1e-4_fp
-  simParams%numTimeSteps = 2000
-  simParams%writeFrequency = 40
+  simParams%numTimeSteps = 20
+  simParams%writeFrequency = 10
   allocate(simParams%m(1))
   simParams%m(1) = 1e-25
   allocate(simParams%d_ref(1))
   simParams%d_ref(1) = 5e-10
-  simParams%F_N = 1e-14
+  simParams%F_N = 1e14
   simParams%collisionModel = 1
+  simParams%V_c = 1._fp
 
 
   call createTreeFromFile(tree, params, trim(filebasename)//".tree")
   simParams%width = tree%treeParams%width
   simParams%height = tree%treeParams%height
-  simParams%V_c = simParams%width * simParams%height * 1._fp
+  ! simParams%V_c = simParams%width * simParams%height * 1._fp
 
   ! !> initializing the tree by hand
   ! allocate(tree)

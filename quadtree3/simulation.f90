@@ -19,11 +19,13 @@ contains
 
     call moveParticles(tree, simParams)
     call updateTreeNodes(tree, simParams)
+    !$OMP PARALLEL DO private(n, nCollisions, collisionPairs) shared(tree, simParams)
     do i = 1, tree%leafNumber
       n => tree%leafs(i)%node
       call selectCollisionPairs(n, tree, simParams, collisionPairs, nCollisions)
       call collide(n, tree, collisionPairs, nCollisions, simParams)
     end do
+    !$OMP END PARALLEL DO
   end subroutine step 
 
   subroutine moveParticles(tree, params)

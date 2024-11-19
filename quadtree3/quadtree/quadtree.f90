@@ -4,6 +4,8 @@ module m_quadtree
     addParticleCount, initializeCellStats, deleteCellStats
   use m_util, only: lineIntersection, sort!,conditionedMergeSort
 
+  use omp_lib
+
   implicit none
 
   type QuadTreeNode
@@ -869,6 +871,7 @@ contains
     allocate(tree%particles(5, idx))
     
     !> TODO: can be parallelized
+    !$OMP PARALLEL DO private(idx, num, n) shared(tree, tmpParticles,simParams)
     do i = 1, tree%leafNumber
       idx = tree%particleStartIndices(i)
       num = tree%particleNumbers(i)
@@ -900,6 +903,7 @@ contains
         tree%structures(i)%structures => n%structures
       end if 
     end do
+    !$OMP END PARALLEL DO
     deallocate(tmpLeafs)
     deallocate(tmpParticles)
     deallocate(tmpParticleStartIndices)
@@ -954,6 +958,8 @@ contains
 
     !> TODO: can be parallelized
     !> copy the new particles to the particles array
+    !!$OMP PARALLEL DO private(nodeIdx, node, currentNumParticles, particleStorage, particleStartIdx) &
+    !!$OMP shared(tree, leafIdx, particles, startIdx)
     do i = start,j
       ! nodeIdx = startIdx(leafIdx(i))
       nodeIdx = leafIdx(startIdx(i))
@@ -992,6 +998,7 @@ contains
       end if
       ! node%numParticles = node%numParticles + numParticles(i)
     end do
+    !!$OMP END PARALLEL DO
 
     deallocate(numParticles)
     deallocate(startIdx)
@@ -1014,6 +1021,7 @@ contains
     allocate(leafIdx(numParticles))
 
     !> TODO: can be parallelized
+    !$OMP PARALLEL DO private(i, n, j) shared(particles, tree, leafIdx)
     do i = 1, numParticles
       !> mark particles outside the tree as invalid
       if (&
@@ -1041,6 +1049,7 @@ contains
 
       leafIdx(i) = n%nodeIdx
     end do
+    !$OMP END PARALLEL DO
 
   end subroutine findParticleCells
 

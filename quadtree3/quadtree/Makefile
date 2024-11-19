@@ -13,12 +13,12 @@ OBJECTS=quadtree.o quadtree_io.o
 # Fortran compiler
 FC ?=gfortran
 # Fortran compiler flags
-CFLAGS += -I$(LIBDIR) -J$(MODDIR)
+CFLAGS += -I$(LIBDIR) -J$(MODDIR) -fopenmp
 
 # Linker
 LD ?=gfortran
 # Linker flags
-LDFLAGS ?=
+LDFLAGS ?= -fopenmp
 
 # archive utility
 AR ?= ar

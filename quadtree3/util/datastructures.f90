@@ -82,11 +82,17 @@ contains
     real(fp), pointer, dimension(:,:) :: tmp
 
     !> temporarily copy the current particles to tmp
-    allocate(tmp(5,list%length))
-    tmp(:, :) = list%particles(:, :)
-    !> deallocate the particles array and reallocate with new size
-    deallocate(list%particles)
+    tmp => list%particles
+    nullify(list%particles)
     allocate(list%particles(5,list%length + list%chunksize))
+
+
+    ! !> temporarily copy the current particles to tmp
+    ! allocate(tmp(5,list%length))
+    ! tmp(:, :) = list%particles(:, :)
+    ! !> deallocate the particles array and reallocate with new size
+    ! deallocate(list%particles)
+    ! allocate(list%particles(5,list%length + list%chunksize))
 
     !> copy the particles back to the particles array
     list%particles(:, 1:list%length) = tmp(:, :)
@@ -164,9 +170,9 @@ contains
 
     if (counter%currentPosition == counter%historyLength) then
       counter%historyIsFull = .true. !> if the position is reset to the beginning the history is filled at least once
-      counter%currentPosition = 1
+      counter%currentPosition = 1_i2
     else
-      counter%currentPosition = counter%currentPosition + 1
+      counter%currentPosition = counter%currentPosition + 1_i2
     end if
     if (.not.counter%historyIsFull) then
       counter%history(counter%currentPosition) = val

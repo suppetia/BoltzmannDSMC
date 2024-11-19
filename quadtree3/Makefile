@@ -2,6 +2,9 @@
 
 MAIN=test_basic_features
 
+OMP_NUM_THREADS=4
+
+
 OBJECTS=simulation.o
 
 MODDIR=$(shell pwd)/include
@@ -12,12 +15,12 @@ HDF5_INCLUDEDIR="/usr/include/hdf5/serial"
 # Fortran compiler
 FC=gfortran
 # Fortran compiler flags
-CFLAGS:=-I$(MODDIR)
+CFLAGS:=-I$(MODDIR) -fopenmp
 
 # Linker
 LD=gfortran
 # Linker flags
-LDFLAGS= -L$(LIBDIR) -L$(HDF5_LIBDIR) -lquadtree -lutil -lhdf5 -lhdf5_fortran
+LDFLAGS= -L$(LIBDIR) -L$(HDF5_LIBDIR) -lquadtree -lutil -lhdf5 -lhdf5_fortran -fopenmp
 
 # archive utility
 AR=ar
@@ -26,12 +29,12 @@ ARFLAGS =
 # export all variables to sub-Makefiles
 export
 
-build: CFLAGS += -O3 -ftree-vectorize
+build: CFLAGS += -O3 -ftree-vectorize -fopt-info-all=optinfo.all
 build: LDFLAGS += -O3
 build: $(MAIN).out
 
-debug: CFLAGS += -Wall -g -fbounds-check
-debug: LDFLAGS += -Wall -g -fbounds-check
+debug: CFLAGS += -Wall -g -pg -fbounds-check
+debug: LDFLAGS += -Wall -pg -fbounds-check
 debug: $(MAIN).out
 
 
