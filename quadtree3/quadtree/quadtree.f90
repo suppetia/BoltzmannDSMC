@@ -2,7 +2,7 @@ module m_quadtree
   use m_types, only: fp, i1, i4, i8
   use m_datastructures, only: QuadTreeParameters, SimulationParameters, StructuresPointer, CellStats, &
     addParticleCount, initializeCellStats, deleteCellStats
-  use m_util, only: lineIntersection, sort!,conditionedMergeSort
+  use m_util, only: lineIntersection, sort, k_B
 
   use omp_lib
 
@@ -199,11 +199,10 @@ contains
   end subroutine initializeTree 
 
 
-  recursive subroutine splitNode(node, tree, stack)
+  recursive subroutine splitNode(node, tree)
     implicit none
     type(QuadTreeNode), pointer, intent(inout) :: node
     type(QuadTree), pointer, intent(inout) :: tree
-    type(NodeStack), intent(inout) :: stack
 
     real(fp), pointer, dimension(:,:) :: tmpParticles
     integer(i1), pointer, dimension(:) :: tmpParticleTypes
@@ -227,7 +226,9 @@ contains
     allocate(node%children(4))
 
     !> update the number of leafs in the tree
+    !$OMP CRITICAL
     tree%leafNumber = tree%leafNumber + 3
+    !$OMP END CRITICAL
 
     newWidth = cellWidth(node) * tree%treeParams%width / 2
     newHeight = cellHeight(node) * tree%treeParams%height / 2
@@ -441,9 +442,7 @@ contains
       do j = 1,4
         childNode => node%children(j)
         if (childNode%tmpParticleCount > tree%treeParams%elementSplitThreshold) then
-          call splitNode(childNode, tree, stack)
-        ! else
-        !   call push(stack, childNode)
+          call splitNode(childNode, tree)
         end if
       end do
     end if 
@@ -451,23 +450,24 @@ contains
   end subroutine splitNode
 
   !> split all nodes that exceed the threshold defined in the tree parameters
-  subroutine splitNodes(tree, stack)
+  subroutine splitNodes(tree)
     implicit none
     type(QuadTree), pointer, intent(inout) :: tree
-    type(NodeStack), intent(inout) :: stack
 
     ! type(QuadTreeNode), pointer :: node, childNode
     integer(i4) :: i
 
-    !> TODO: can be parallelized
+    !> TODO: can be parallelized if the leaf number is updated in a thread safe way
+    !$OMP PARALLEL DO private(i) shared(tree)
     do i = 1, size(tree%leafs)
       !> use node%tmpParticleCount as this metric is updated when inserting particles
       if (max(tree%particleNumbers(i),tree%leafs(i)%node%tmpParticleCount) &
         >= tree%treeParams%elementSplitThreshold) then
-        call splitNode(tree%leafs(i)%node, tree, stack)
+        call splitNode(tree%leafs(i)%node, tree)
         nullify(tree%leafs(i)%node)
       end if
     end do
+    !$OMP END PARALLEL DO
   end subroutine splitNodes
 
   !> merge the child nodes making node a leaf
@@ -783,7 +783,7 @@ contains
     !> the nodes added to the stack don't need to be considered for merging since otherwise they wouldn't have been created
     !> so they also won't be merged and merging only adds new nodes to the stack
     ! print *, "num leafs ", tree%leafNumber
-    call splitNodes(tree, stack)
+    call splitNodes(tree)
     ! print *, "num leafs ", tree%leafNumber
 
     !> remove unnecessary nodes
@@ -877,9 +877,6 @@ contains
       num = tree%particleNumbers(i)
       n => tree%leafs(i)%node
 
-      !> update the cell stats
-      call addParticleCount(n%stats%particleCounter, num)
-      n%stats%rho = simParams%m(1) * num / (simParams%V_c * cellWidth(n) * cellHeight(n))
 
       if (n%tmpParticleCount < 0) then
         tree%particles(idx:idx+num-1, :) = tmpParticles(n%tmpParticleIndex:n%tmpParticleIndex+num-1, :)
@@ -894,10 +891,31 @@ contains
           ! tree%particleTypes(idx:idx+num) = n%tmpParticleTypes
           ! deallocate(n%tmpParticleTypes)
           deallocate(n%tmpParticles)
+          n%tmpParticleCount = -1
         end if
         ! deallocate(n%tmpParticles)
-        n%tmpParticleCount = -1
+        ! n%tmpParticleCount = -1
       end if
+      !> update the cell stats
+      call addParticleCount(n%stats%particleCounter, num)
+      ! n%stats%n = num / (simParams%V_c * cellWidth(n) * cellHeight(n)) * simParams%F_N
+      ! !> TODO: update using the particle types
+      ! n%stats%rho = simParams%m(1) * n%stats%n
+      !
+      ! !> calculate the mean velocity components
+      ! n%stats%c0_x = sum(tree%particles(idx:idx+num-1, 3)) / num
+      ! n%stats%c0_y = sum(tree%particles(idx:idx+num-1, 4)) / num
+      ! n%stats%c0_z = sum(tree%particles(idx:idx+num-1, 5)) / num
+      ! !> calculate the mean relative velocities
+      ! n%stats%cx_sq = sum((tree%particles(idx:idx+num-1, 3)-n%stats%c0_x) ** 2)/num
+      ! n%stats%cy_sq = sum((tree%particles(idx:idx+num-1, 4)-n%stats%c0_y) ** 2)/num
+      ! n%stats%cz_sq = sum((tree%particles(idx:idx+num-1, 5)-n%stats%c0_z) ** 2)/num
+      !
+      ! n%stats%c_sq = n%stats%cx_sq + n%stats%cy_sq + n%stats%cz_sq
+      ! n%stats%p = n%stats%rho / 3 * n%stats%c_sq
+      ! !> translational temperature 3/2 k * T_tr = 1/2 m * \overbar{c^2}
+      ! n%stats%T = simParams%m(1) / k_B * n%stats%c_sq / 3 
+      !
       if (associated(n%structures)) then
         tree%structures(i)%numStructures = size(n%structures,2)
         tree%structures(i)%structures => n%structures
@@ -924,6 +942,7 @@ contains
     type(QuadTreeNode), pointer :: node
 
     if (size(leafIdx) == 0) then
+      deallocate(leafIdx)
       return
     end if
 

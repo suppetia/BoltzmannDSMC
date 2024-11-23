@@ -4,6 +4,7 @@ module m_simulation  !
     insertParticles, findParticleCells, updateTreeNodes
   use m_datastructures, only: SimulationParameters, ParticleList, append, initializeParticleList, deleteParticleList
   use m_util, only: PI, sigma_T
+  use omp_lib, only: omp_get_num_threads, omp_get_thread_num
   implicit none
 
 contains
@@ -35,19 +36,30 @@ contains
 
     type(QuadTreeNode), pointer :: n
     type(ParticleList) :: list
-    integer(i4), dimension(:), pointer :: leafIdx
-    integer(i4) :: i,j, numParticles, idx
+    integer(i4), dimension(:), pointer :: leafIdx, particleStartIdx, numParticlesThread
+    integer(i4) :: i,j, numParticles, idx, threadID
     real(fp) :: x,y,width,height
     real(fp), dimension(:,:), pointer :: particles
 
-    integer :: counter
+
+
+    !$OMP PARALLEL private(list, n, numParticles, idx, x,y,width,height, threadID) &
+    !$OMP shared(tree, particles, particleStartIdx, numParticlesThread)
+
+    !$OMP SINGLE
+    allocate(particleStartIdx(omp_get_num_threads()))
+    allocate(numParticlesThread(omp_get_num_threads()))
+    numParticlesThread = 0
+    !$OMP END SINGLE
+
+    threadID = omp_get_thread_num() + 1
 
     !> TODO: write a thread-safe version for this
-    call initializeParticleList(list, chunksize=1000)
+    call initializeParticleList(list, chunksize=10000)
 
 
-    counter = 0
     !> TODO: can be parallelized if at the end the particle list is merged
+    !$OMP DO
     do i = 1, tree%leafNumber
       n => tree%leafs(i)%node
       numParticles = tree%particleNumbers(i)
@@ -76,22 +88,39 @@ contains
           call append(list, tree%particles(idx+j, :))
           numParticles = numParticles - 1
           tree%particles(idx+j, :) = tree%particles(idx+numParticles, :)
-          counter = counter + 1
         end if 
       end do 
       tree%particleNumbers(i) = numParticles
     end do 
+    !$OMP END DO
+    numParticlesThread(threadID) = list%numParticles
 
+    
     !> TODO: determine the actual cells using hints
     ! allocate(leafIdx(list%numParticles))
 
-    particles => list%particles(:list%numParticles, :)
+    !$OMP BARRIER
+    !$OMP SINGLE
+    particleStartIdx = 1
+    do j = 1, omp_get_num_threads()-1
+      particleStartIdx(j+1:) = particleStartIdx(j+1:) + numParticlesThread(j)
+    end do 
+    allocate(particles(sum(numParticlesThread),5))
+    !$OMP END SINGLE
+    
+    particles(particleStartIdx(threadID):particleStartIdx(threadID)+numParticlesThread(threadID)-1,:) &
+      = list%particles(:list%numParticles,:)
+
+    call deleteParticleList(list)
+    !$OMP END PARALLEL
+
+    ! particles => list%particles(:list%numParticles, :)
     call findParticleCells(tree, particles, leafIdx)
     call insertParticles(tree, particles, leafIdx)
 
-    nullify(particles)
+    ! nullify(particles)
     ! deallocate(leafIdx)
-    call deleteParticleList(list)
+    ! call deleteParticleList(list)
 
   end subroutine moveParticles 
 
@@ -123,8 +152,34 @@ contains
     end do 
 
     do i = 1, numParticles
-      if (all(collisionDistance(i, :) <= 0)) then
-        j = maxloc(collisionDistance(i, :), 1) !> find index of closest structure
+      j = 0
+      if (numStructures == 1 .and. collisionDistance(i,1) <= 0) then
+        j = 1
+      else if (numStructures == 2) then
+        !> check if the inside area is concave or convex in this region
+        !> convex => n_1 x n_2 < 0
+        !> in this case both must be <= 0 for a collision
+        ! if (all(collisionDistance(i, :) <= 0)) then
+        !   j = maxloc(collisionDistance(i, :), 1) !> find index of closest structure
+        ! end if
+        if (structures(5, 1)*structures(6,2) - structures(6,1)*structures(5,2) < 0) then
+          !> in this case only one dotp can be < 0 => this means collision
+          if (any(collisionDistance(i,:) <= 0)) then
+            j = minloc(collisionDistance(i,:), 1)
+          end if 
+        else
+          !> in this case both must be <= 0 for a collision
+          if (all(collisionDistance(i, :) <= 0)) then
+            j = maxloc(collisionDistance(i, :), 1) !> find index of closest structure
+          end if
+        end if 
+      else if (size(structures,2) > 2) then
+        print *, "more than two structures per cell not implemented"
+        return
+      end if 
+      if (j > 0) then
+      ! if (all(collisionDistance(i, :) <= 0)) then
+      !   j = maxloc(collisionDistance(i, :), 1) !> find index of closest structure
         v_x = particles(i, 3)
         v_y = particles(i, 4)
         !> update the velocity of the particle as v <- v - 2(v*n)n
@@ -134,13 +189,13 @@ contains
         !> find the intersection of the structure and the particle trajectory
         s_x = structures(3,j) - structures(1,j)
         s_y = structures(4,j) - structures(2,j)
-
+  
         if (abs(s_x) < 1e-10_fp) then
           t = (structures(1,j)-particles(i, 1))/v_x
         else
           t = (particles(i, 2) - structures(2,j) - (particles(i, 1)-structures(1,j))/s_x*s_y)/(v_x*s_y/s_x-v_y)
         end if 
-
+  
         particles(i, 1) = particles(i, 1) + t*(v_x - particles(i, 3))
         particles(i, 2) = particles(i, 2) + t*(v_y - particles(i, 4))
       end if 

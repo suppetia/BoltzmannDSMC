@@ -50,9 +50,15 @@ module m_datastructures
     type(ParticleAverageCounter), pointer :: particleCounter
     integer(i4), pointer :: N_avg !> average number of particles in the cell
 
-    real(fp) :: rho
-
     real(fp) :: maxSigmaC !> maxValue of sigma_T * c_r
+
+    real(fp) :: n !> particle density
+    real(fp) :: rho !> mass density
+    real(fp) :: c0_x, c0_y, c0_z !> mean velocity components
+    real(fp) :: cx_sq, cy_sq, cz_sq !> mean squared relative velocity components
+    real(fp) :: c_sq !> mean squared relative velocity (relative = c - c_mean)
+    real(fp) :: p !> pressure
+    real(fp) :: T !> translational temperature
 
   end type CellStats
 

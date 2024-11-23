@@ -15,7 +15,7 @@ from scipy.optimize import curve_fit
 from quadtree import QuadTreeNode
 
 cmap = plt.get_cmap('inferno')
-max_brightness = 1e-27
+max_brightness = 1e-30
 
 
 def boltzmann_total(v, a, b):
@@ -47,8 +47,9 @@ def get_grid_and_particles(cell_matrix, particle_matrix):
     # print(cell_matrix[:, :2])
     max_brightness = max(max_brightness, np.max(cell_matrix[:, 4], axis=0))
     # print(max_brightness)
-    cnorm = mcolors.Normalize(vmin=0, vmax=np.mean(max_brightness), clip=True)
-    # cnorm = mcolors.LogNorm(vmin=1e-25, vmax=np.mean(max_brightness), clip=True)
+    # cnorm = mcolors.Normalize(vmin=0, vmax=np.mean(max_brightness), clip=True)
+    cnorm = mcolors.Normalize(vmin=1e-3*max_brightness, vmax=.1*max_brightness, clip=True)
+    # cnorm = mcolors.LogNorm(vmin=1e-3*max_brightness, vmax=.1*max_brightness, clip=True)
 
     for cell in cell_matrix:
         # print(cell[4])
@@ -106,25 +107,28 @@ def update_plot(num, img_freq, img_offset, filebasename, artists, display_params
         if vel.size > 0:
             mean_vel = np.mean(vel)
 
-            ax_hist.cla()
             for dim in ["x", "y"]:
                 if dim == "x":
                     idx = 2
                 elif dim == "y":
                     idx = 3
+                ax_hist[idx-2].cla()
 
                 v = points[idx][mask]
                 v_mean = np.mean(v)
-                counts, bins, _ = ax_hist.hist(v-v_mean, bins=num_bins, density=True, alpha=.5)
+                counts, bins, _ = ax_hist[idx-2].hist(v-v_mean, bins=num_bins, density=True, alpha=.5)
                 # counts, bins, _ = ax_hist.hist(vel, bins=num_bins, density=True)
                 bin_centers = 0.5 * (bins[1:] + bins[:-1])
 
-                # Fit the histogram data to the Boltzmann distribution
-                popt, pcov = curve_fit(boltzmann, bin_centers, counts, p0=[1/(counts.max()*bin_centers[len(bin_centers)//2]), 1e-13])  # Initial guesses for a and b
-                x_fit = np.linspace(bin_centers.min(), bin_centers.max(), 100)
-                y_fit = boltzmann(x_fit, *popt)
-                ax_hist.plot(x_fit, y_fit, label=fr"$p(v_{dim}) = a\cdot \exp(-b\cdot v_{dim}^2)$"+f"\na={popt[0]:.2e}, b={popt[1]:.2e}")
-            ax_hist.legend()
+                try:
+                    # Fit the histogram data to the Boltzmann distribution
+                    popt, pcov = curve_fit(boltzmann, bin_centers, counts, p0=[1/(counts.max()*bin_centers[len(bin_centers)//2]), 1e-13])  # Initial guesses for a and b
+                    x_fit = np.linspace(bin_centers.min(), bin_centers.max(), 100)
+                    y_fit = boltzmann(x_fit, *popt)
+                    ax_hist[idx-2].plot(x_fit, y_fit, label=fr"$p(v_{dim}) = a\cdot \exp(-b\cdot (v_{dim}- "+r"\overline{v_"+dim+"})^2)$"+f"\na={popt[0]:.2e}, b={popt[1]:.2e}")
+                except RuntimeError:
+                    pass
+                ax_hist[idx-2].legend()
             plt.draw()
 
         # mark the selected rectangle
@@ -146,23 +150,23 @@ def update_plot(num, img_freq, img_offset, filebasename, artists, display_params
 # filename_image = "data/test_8.png"
 # filebasename = "data/matrix8"
 # filename_image = "../data/test_11.png"
-filebasename = "../data/test_18"
+filebasename = "../data/test_19"
 # filebasename = "../data/empty1x1"
 
-display_grid = False#True
-display_particles = False
-display_density = True
+display_grid = True#True
+display_particles = True
+display_density = False
 display_vel_hist = True
-bin_count = 30
+bin_count = 50
 
 save_animation = False
 
-img_freq = 40
+img_freq = 1
 img_offset = 0#527
-num_images = 200//4
+num_images = 200#//4
 # num_images = 1000 - img_offset
 
-rect = np.array([1000,1000,300,300])
+rect = np.array([1000,1400,300,300])
 
 alpha = .5
 
@@ -199,8 +203,7 @@ patch = ax.add_collection(PatchCollection([], linewidth=1, edgecolor='none', fac
 print(type(patch))
 
 if display_vel_hist:
-    ax_hist = ax.inset_axes([.8, .6, .2, .2])
-    ax_hist.legend()
+    ax_hist = [ax.inset_axes([.8, .7, .2, .2]), ax.inset_axes([.8, .4, .2, .2])]
 else:
     ax_hist = None
 #
@@ -228,6 +231,6 @@ ax.set_ylim(-1, root.height+1)
 ax.set_xlim(-1, root.width+1)
 if save_animation:
     progress_callback = lambda i, n: print(f'Saving frame {i}/{n}\n' if i%10 == 0 else "", end="")
-    ani.save(f"{filebasename}.mp4", fps=10, dpi=200, progress_callback=progress_callback)
+    ani.save(f"{filebasename}.mp4", fps=24, dpi=200, progress_callback=progress_callback)
 else:
     plt.show()

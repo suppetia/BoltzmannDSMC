@@ -17,25 +17,31 @@ program test_basic_features
   integer(i4), dimension(:), pointer :: leafIdx
 
   integer :: i,it, status
+  integer(i4) :: tStart, tStop
 
   character(len=100) :: filebasename
   logical :: storeParticles
 
-  filebasename = "data/test_18"
+  ! filebasename = "data/test_18"
+  filebasename = "data/test_19"
   storeParticles = .true.
 
   !$OMP PARALLEL
+  !$OMP SINGLE
   print *, "number of threads:", omp_get_num_threads()
+  !$OMP END SINGLE
   !$OMP END PARALLEL
+
+  tStart = time()
 
 
   !> initialize the quadtree-parameters
   allocate(params)
   params%width = 1._fp
   params%height = 1._fp
-  params%elementSplitThreshold = 50
-  params%elementMergeThreshold = 40
-  params%elementChunkSize = 10
+  params%elementSplitThreshold = 500
+  params%elementMergeThreshold = 400
+  params%elementChunkSize = 50
   params%cellHistoryLength = 30
 
   allocate(simParams)
@@ -52,8 +58,10 @@ program test_basic_features
 
 
   call createTreeFromFile(tree, params, trim(filebasename)//".tree")
+  print *, tree%particleStartIndices(tree%leafNumber)
   simParams%width = tree%treeParams%width
   simParams%height = tree%treeParams%height
+  print *, tree%leafNumber
   ! simParams%V_c = simParams%width * simParams%height * 1._fp
 
   ! !> initializing the tree by hand
@@ -125,7 +133,7 @@ program test_basic_features
   open(unit=1234, iostat=status, file=trim(filebasename)//".h5", status='old')
   if (status == 0) close(1234, status='delete')
 
-  call writeQuadTreeToHDF5(tree, trim(filebasename)//".h5", 0, storeParticles)
+  call writeQuadTreeToHDF5(tree, simParams, trim(filebasename)//".h5", 0, storeParticles)
   ! print *, particles(:, 1)
 
 
@@ -137,8 +145,19 @@ program test_basic_features
     particles(:, 2) = particles(:, 2) * tree%treeParams%height
     particles(:, 3) = (10._fp + particles(:, 3) * 10._fp) * (tree%treeParams%height+tree%treeParams%width)/2
     particles(:, 4:) = (particles(:, 4:) -.5_fp) * 10._fp * (tree%treeParams%height+tree%treeParams%width)/2
+    ! !> for the "rocket engine"
+    ! particles(:, 1) = 400._fp + (particles(:,1) - .5_fp) * 30
+    ! particles(:, 2) = 1550._fp + (particles(:,2) - .5_fp) * 30
+    ! particles(:, 3) = (particles(:, 3) -.5_fp)* 10._fp *3000!* (tree%treeParams%height+tree%treeParams%width)/2
+    ! particles(:, 4:) = (particles(:, 4:) -.5_fp) * 10._fp *3000!* (tree%treeParams%height+tree%treeParams%width)/2
+    ! particles(:,1) = 0._fp
+    ! particles(:,2) = particles(:, 2)* 100
+    ! particles(:,3) = 1e4_fp
+    ! particles(:,4) = 0._fp
     call findParticleCells(tree, particles, leafIdx)
+    ! print *, leafIdx, tree%leafNumber
     call insertParticles(tree, particles, leafIdx)
+    call updateTreeNodes(tree, simParams)
 
     ! call random_number(particles)
     ! particles(:, 1) = particles(:, 1) * tree%treeParams%width
@@ -149,7 +168,7 @@ program test_basic_features
     ! call updateTreeNodes(tree, simParams)
     call step(tree, simParams)
     if (mod(it, simParams%writeFrequency) == 0) then
-      call writeQuadTreeToHDF5(tree, trim(filebasename)//".h5", it, storeParticles)
+      call writeQuadTreeToHDF5(tree, simParams, trim(filebasename)//".h5", it, storeParticles)
     end if 
   end do 
 
@@ -157,6 +176,12 @@ program test_basic_features
 
   deallocate(particles)
   deallocate(params)
+  deallocate(simParams%m)
+  deallocate(simParams%d_ref)
   deallocate(simParams)
 
+  tStop = time()
+  open(unit=1234, iostat=status, file=trim(filebasename)//".sum", status='old')
+  write(1234, *) tStop-tStart
+  
 end program test_basic_features

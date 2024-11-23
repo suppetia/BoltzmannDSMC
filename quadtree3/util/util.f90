@@ -4,6 +4,8 @@ module m_util
   implicit none
 
   real(fp) :: PI = 4._fp * datan(1._fp)
+  real(fp) :: k_B = 1.380649e-23_fp
+  real(fp) :: R = 8.31446261815324_fp
 
 
 contains

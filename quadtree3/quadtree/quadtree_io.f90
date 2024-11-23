@@ -3,63 +3,96 @@ module m_quadtree_io
   use m_quadtree, only: QuadTree, QuadTreeNode, cellX, cellY, cellWidth, cellHeight, &
     NodeStack, initializeStack, deleteStack, push, pop
   use m_matrix_io, only: writeRealMatrixToH5Dataset
-  use m_datastructures, only: QuadTreeParameters, initializeCellStats
+  use m_datastructures, only: QuadTreeParameters, initializeCellStats, SimulationParameters
+  use m_util, only: k_B
   implicit none
 contains
 
-  subroutine writeQuadTreeToHDF5(tree, filename, datasetID, writeParticles)
+  subroutine writeQuadTreeToHDF5(tree, simParams, filename, datasetID, writeParticles)
     implicit none
     type(QuadTree), pointer, intent(inout) :: tree
+    type(SimulationParameters), pointer, intent(in) :: simParams
     character(len=*), intent(in) :: filename
     integer(i4), intent(in) :: datasetID
     logical, intent(in) :: writeParticles
 
     real(fp), pointer, dimension(:,:) :: matrix
     integer(i4), pointer, dimension(:) :: particleStartPosition
-    type(QuadTreeNode), pointer :: n
+    type(QuadTreeNode), pointer :: node
     integer(i4) :: i, numParticles, idx1, idx2, num
     real(fp) :: width, height
     character(len=5) :: datasetName
 
     integer(i4) :: error
 
+    real(fp) :: n !> particle density
+    real(fp) :: rho !> mass density
+    real(fp) :: c0_x, c0_y, c0_z !> mean velocity components
+    real(fp) :: cx_sq, cy_sq, cz_sq !> mean squared relative velocity components
+    real(fp) :: c_sq !> mean squared relative velocity (relative = c - c_mean)
+    real(fp) :: p !> pressure
+    real(fp) :: T !> translational temperature
+
+
     width = tree%treeParams%width
     height = tree%treeParams%height
-    allocate(matrix(5, tree%leafNumber))
+    allocate(matrix(12, tree%leafNumber))
+    numParticles = 0
+    allocate(particleStartPosition(tree%leafNumber))
+    particleStartPosition = 1
     do i = 1, tree%leafNumber
-      n => tree%leafs(i)%node
-      matrix(:, i) = [cellX(n)*width, cellY(n)*height, cellWidth(n)*width, cellHeight(n)*height, n%stats%rho]
-    end do 
+      num = tree%particleNumbers(i)
+      idx1 = tree%particleStartIndices(i)
+      numParticles = numParticles + num
+      particleStartPosition(i+1:) = particleStartPosition(i+1:) + num
+      node => tree%leafs(i)%node
 
+      !> calculate the node stats
+      n = num / (simParams%V_c * cellWidth(node) * cellHeight(node)) * simParams%F_N
+      !> TODO: update using the particle types
+      rho = simParams%m(1) * n
+      
+      !> calculate the mean velocity components
+      c0_x = sum(tree%particles(idx1:idx1+num-1, 3)) / num
+      c0_y = sum(tree%particles(idx1:idx1+num-1, 4)) / num
+      c0_z = sum(tree%particles(idx1:idx1+num-1, 5)) / num
+      !> calculate the mean relative velocities
+      cx_sq = sum((tree%particles(idx1:idx1+num-1, 3)-c0_x) ** 2)/num
+      cy_sq = sum((tree%particles(idx1:idx1+num-1, 4)-c0_y) ** 2)/num
+      cz_sq = sum((tree%particles(idx1:idx1+num-1, 5)-c0_z) ** 2)/num
+      
+      c_sq = cx_sq + cy_sq + cz_sq
+      p = rho / 3 * c_sq
+      !> translational temperature 3/2 k * T_tr = 1/2 m * \overbar{c^2}
+      T = simParams%m(1) / k_B * c_sq / 3 
+      
+
+      matrix(:, i) = [cellX(node)*width, cellY(node)*height, cellWidth(node)*width, cellHeight(node)*height, &
+        n, rho, p, T, c_sq, c0_x, c0_y, c0_z]
+    end do 
 
     write(datasetName, "(i5.5)") datasetID
 
-    call writeRealMatrixToH5Dataset(filename, datasetName//"_tree", matrix,tree%leafNumber, 5, error)
+    call writeRealMatrixToH5Dataset(filename, datasetName//"_tree", matrix,tree%leafNumber, 12, error)
     deallocate(matrix)
 
     if (writeParticles) then
       !> write the particle matrix to the file
-      numParticles = 0
-      allocate(particleStartPosition(tree%leafNumber))
-      particleStartPosition = 1
-      do i = 1, tree%leafNumber
-        num = tree%particleNumbers(i)
-        numParticles = numParticles + num
-        particleStartPosition(i+1:) = particleStartPosition(i+1:) + num
-      end do 
       allocate(matrix(numParticles,5))
       !> TODO: can be parallelized
+      !$OMP PARALLEL DO private(i,num,idx1,idx2) shared(matrix, tree)
       do i = 1, tree%leafNumber
         num = tree%particleNumbers(i)
         idx1 = tree%particleStartIndices(i)
         idx2 = particleStartPosition(i)
         matrix(idx2:idx2+num-1, :) = tree%particles(idx1:idx1+num-1, :)
       end do
+      !$OMP END PARALLEL DO
       
       call writeRealMatrixToH5Dataset(filename, datasetName//"_particles", matrix, 5, numParticles, error)
       deallocate(matrix)
-      deallocate(particleStartPosition)
     end if 
+    deallocate(particleStartPosition)
   end subroutine writeQuadTreeToHDF5 
 
 
