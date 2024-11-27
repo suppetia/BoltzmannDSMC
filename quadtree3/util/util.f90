@@ -62,140 +62,58 @@ contains
   end function lineIntersection
 
   !> sort the first dimension arr1 based on arr2
-  !> based on https://rosettacode.org/wiki/Sorting_algorithms/Merge_sort#Fortran
   subroutine sort(arr1, arr2)
     implicit none
     real(fp), dimension(:,:), pointer, intent(inout) :: arr1
     integer(i4), dimension(:), pointer, intent(inout) :: arr2
 
-    real(fp), dimension((size(arr1, 1)+1)/2, 5) :: work1
-    integer(i4), dimension((size(arr1, 1)+1)/2) :: work2
-
-    call conditionedMergeSort(arr1, arr2, work1, work2)
+    call quicksort(arr1, arr2)
   end subroutine sort 
 
-  subroutine conditionedMerge(A1, B1, C1, A2, B2, C2)
+  !> implementation of quick-sort where array arr1 is sorted in the first dimension based on arr2
+  !> based on https://gist.github.com/1AdAstra1/6f7785373efe5bb6c254d2e20c78ccc4
+  recursive subroutine quicksort(arr1, arr2)
     implicit none
-    real(fp), target, dimension(:, :), intent(in) :: A1, B1
-    real(fp), target, dimension(:, :), intent(inout) :: C1
-    integer(i4), target, dimension(:), intent(in) :: A2, B2
-    integer(i4), target, dimension(:), intent(inout) :: C2
+    real(fp), dimension(:,:), intent(inout) :: arr1
+    integer(i4), dimension(:), intent(inout) :: arr2
 
-    integer(i4) :: i,j,k
+    real(fp), dimension(5) :: temp1
+    integer(i4) :: first, last, i,j, temp2, pivot
 
-    if (size(A2) + size(B2) > size(C2)) stop 1
-
-    i = 1; j = 1
-    do k = 1, size(C2)
-      if (i <= size(A2) .and. j <= size(B2)) then
-        if (A2(i) <= B2(j)) then
-          C2(k) = A2(i)
-          C1(k, :) = A1(i, :)
-          i = i+1
-        else
-          C2(k) = B2(j)
-          C1(k, :) = B1(j, :)
-          j = j+1
-        end if 
-      else if (i <= size(A2)) then
-        C1(k, :) = A1(i, :)
-        C2(k) = A2(i)
+    first = 1
+    last = size(arr2,1)
+    !> chose pivot element as element in the middle of the array
+    pivot = arr2((first+last)/2)
+    i = first
+    j = last
+    do
+      do while(arr2(i) < pivot)
         i = i+1
-      else if (j <= size(B2)) then
-        C1(k, :) = B1(j, :)
-        C2(k) = B2(j)
-        j = j+1
+      end do 
+      do while(pivot < arr2(j))
+        j = j-1
+      end do 
+      if (i >= j) then
+        exit
       end if 
-    end do 
-  end subroutine conditionedMerge 
+      temp1 = arr1(i,:)
+      temp2 = arr2(i)
+      arr1(i,:) = arr1(j,:)
+      arr2(i) = arr2(j)
+      arr1(j,:) = temp1
+      arr2(j) = temp2
 
-  recursive subroutine conditionedMergeSort(arr1, arr2, work1, work2)
-    implicit none
-    real(fp), dimension(:,:), intent(inout) :: arr1, work1 
-    integer(i4), dimension(:), intent(inout) :: arr2, work2
+      i = i+1
+      j = j-1
+    end do
 
-    real(fp), dimension(5) :: tmp1
-    integer(i4) :: tmp2
-    integer(i4) :: half
-    half = (size(arr2) + 1) / 2
-
-    if (size(arr2) < 2) then
-      return
-    else if (size(arr2) == 2) then
-      if (arr2(1) > arr2(2)) then
-        !> swap two elements
-        tmp1 = arr1(1, :)
-        tmp2 = arr2(1)
-        arr1(1, :) = arr1(2, :)
-        arr2(1) = arr2(2)
-        arr1(2, :) = tmp1
-        arr2(2) = tmp2
-      end if
-    else
-      call conditionedMergeSort(arr1(:half, :), arr2(:half), work1, work2)
-      call conditionedMergeSort(arr1(half+1:, :), arr2(half+1:), work1, work2)
-      if (arr2(half) > arr2(half+1)) then
-        work1(:half, :) = arr1(:half, :)
-        work2(:half) = arr2(:half)
-        call conditionedMerge(work1(:half, :), arr1(half+1:, :), arr1, work2(:half), arr2(half+1:), arr2)
-      end if 
+    if (first < i-1) then
+      call quicksort(arr1(first:i-1,:), arr2(first:i-1))
     end if 
-  end subroutine conditionedMergeSort 
-
-  !> implementation of merge-sort where array arr1 is sorted in the second dimension based on arr2
-  !> both arrays are sorted inplace
-  ! recursive subroutine conditionedMergeSort(arr1, arr2, left, right)
-  !   real(fp), pointer, intent(inout) :: arr1(:, :)
-  !   integer(i4), pointer, intent(inout) :: arr2(:)
-  !   integer(i4), intent(in) :: left, right
-  !   integer(i4) :: mid
-  !
-  !   if (left < right) then
-  !     mid = (left + right) / 2
-  !     call conditionedMergeSort(arr1, arr2, left, mid)
-  !     call conditionedMergeSort(arr1, arr2, mid + 1, right)
-  !     call conditionedMerge(arr1, arr2, left, mid, right)
-  !   end if
-  ! end subroutine conditionedMergeSort
-  !
-  ! subroutine conditionedMerge(arr1, arr2, left, mid, right)
-  !   real(fp), pointer, intent(inout) :: arr1(:, :)
-  !   integer(i4), pointer, intent(inout) :: arr2(:)
-  !   integer(i4), intent(in) :: left, mid, right
-  !   integer(i4) :: i, j, k, n1, n2, tmpMid
-  !   integer(i4) :: temp1(5), temp2
-  !
-  !   ! n1 = mid - left + 1
-  !   ! n2 = right - mid
-  !
-  !   tmpMid = mid
-  !
-  !   i = left
-  !   j = mid + 1
-  !   ! k = left
-  !   if (arr2(mid) <= arr2(j)) then
-  !     return
-  !   end if 
-  !
-  !
-  !   do while (i <= mid .and. j <= right)
-  !     if (arr2(i) <= arr2(j)) then
-  !       i = i + 1
-  !     else
-  !       temp1 = arr1(j, :)
-  !       temp2 = arr2(j)
-  !       do k = j, i+1, -1
-  !         arr1(k, :) = arr1(k-1, :)
-  !         arr2(k) = arr2(k-1)
-  !       end do
-  !       arr1(i, :) = temp1
-  !       arr2(i) = temp2
-  !       i = i + 1
-  !       tmpMid = tmpMid + 1
-  !       j = j + 1
-  !     end if
-  !   end do
-  ! end subroutine conditionedMerge
-
+    if (j+1 < last) then
+      call quicksort(arr1(j+1:last,:), arr2(j+1:last))
+    end if 
+    
+  end subroutine quicksort 
 
 end module m_util

@@ -620,44 +620,6 @@ contains
     end if
   end subroutine findLeafs
 
-  ! recursive subroutine findNewLeafsAfterRemoval(n, newLeafsStack)
-  !   implicit none
-  !   type(QuadTreeNode), pointer, intent(inout) :: n
-  !   type(NodeStack), intent(inout) :: newLeafsStack
-  !  
-  !   type(QuadTreeNode), pointer :: childNode
-  !   integer(i1) :: i
-  !
-  !   if (n%tmpParticleCount == -2) then
-  !     call markChildNodesAsProcessed(n)
-  !   else if (.not.associated(n%children)) then
-  !     call push(newLeafsStack, n)
-  !   else
-  !     do i = 1,4
-  !       childNode => n%children(i)
-  !       call findNewLeafsAfterRemoval(childNode, newLeafsStack)
-  !     end do
-  !   end if
-  ! end subroutine findNewLeafsAfterRemoval
-  !
-  ! recursive subroutine markChildNodesAsProcessed(node)
-  !   implicit none
-  !     n%tmpParticleCount = -1
-  !   type(QuadTreeNode), pointer, intent(inout) :: node
-  !
-  !   integer(i1) :: i
-  !   type(QuadTreeNode), pointer :: childNode
-  !
-  !   if (node%tmpParticleCount == -2) then
-  !     node%tmpParticleCount = -1
-  !
-  !     do i = 1,4
-  !       childNode => node%children(i)
-  !       call markChildNodesAsProcessed(childNode)
-  !     end do
-  !   end if
-  ! end subroutine markChildNodesAsProcessed
-
   !> traverse from the bottom to the top and merge all possible nodes
   recursive subroutine removeUnnecessaryUpwardNodes(node, tree, newLeafsStack)
     implicit none
@@ -708,57 +670,6 @@ contains
     !   end if
     ! end do
   end subroutine removeUnnecessaryUpwardNodes
-
-  ! !> find the mergeable nodes and remove them
-  ! recursive subroutine removeUnnecessaryDownwardNodes(node, tree, newLeafsStack)
-  !   implicit none
-  !   type(QuadTreeNode), pointer, intent(inout) :: node
-  !   type(QuadTree), pointer, intent(inout) :: tree
-  !   type(NodeStack), intent(inout) :: newLeafsStack
-  !
-  !   type(QuadTreeNode), pointer :: childNode
-  !
-  !   integer(i4) :: i,numElements
-  !
-  !   logical :: isMergeable
-  !
-  !   isMergeable = .true.
-  !
-  !   if (.not.associated(node%children)) then
-  !     return
-  !   end if
-  !   ! if (node%nodeIdx > 0) then !> if the node was a leaf in the last iteration
-  !   !   return
-  !   ! end if
-  !
-  !   numElements = 0
-  !   do i=1,4
-  !     childNode => node%children(i)
-  !     call removeUnnecessaryNodes(childNode, tree, newLeafsStack)
-  !     if (.not.childNode%isCollapsable .or. associated(childNode%children)) then
-  !       isMergeable = .false.
-  !     else 
-  !       if (childNode%tmpParticleCount < 0) then
-  !         numElements = numElements + tree%particleNumbers(childNode%nodeIdx)
-  !       else
-  !         numElements = numElements + childNode%tmpParticleCount
-  !       end if
-  !     end if
-  !   end do
-  !   if (isMergeable .and. numElements <= tree%treeParams%elementMergeThreshold) then
-  !     call mergeChildNodes(node, tree)
-  !   else
-  !     !> if the children can't be merged add them to the stack of new leafs if they haven't been a leaf before
-  !     do i = 1,4
-  !       childNode => node%children(i)
-  !       if (childNode%nodeIdx < 0) then
-  !         call push(newLeafsStack, childNode)
-  !       end if
-  !     end do
-  !   end if
-  ! end subroutine removeUnnecessaryNodes
-
-
 
   subroutine updateTreeNodes(tree, simParams)
     implicit none
