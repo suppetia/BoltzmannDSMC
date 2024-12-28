@@ -40,6 +40,7 @@ contains
     integer(i4) :: i,j, numParticles, idx, threadID
     real(fp) :: x,y,width,height
     real(fp), dimension(:,:), pointer :: particles
+    integer(i1), dimension(:), pointer :: particleTypes
 
 
 
@@ -85,7 +86,7 @@ contains
           tree%particles(idx+j, 1) < x .or. tree%particles(idx+j, 1) >= x+width .or. &
           tree%particles(idx+j, 2) < y .or. tree%particles(idx+j, 2) >= y+height &
         ) then
-          call append(list, tree%particles(idx+j, :))
+          call append(list, tree%particles(idx+j, :), tree%particleTypes(idx+j))
           numParticles = numParticles - 1
           tree%particles(idx+j, :) = tree%particles(idx+numParticles, :)
         end if 
@@ -106,17 +107,20 @@ contains
       particleStartIdx(j+1:) = particleStartIdx(j+1:) + numParticlesThread(j)
     end do 
     allocate(particles(sum(numParticlesThread),5))
+    allocate(particleTypes(sum(numParticlesThread)))
     !$OMP END SINGLE
     
     particles(particleStartIdx(threadID):particleStartIdx(threadID)+numParticlesThread(threadID)-1,:) &
       = list%particles(:list%numParticles,:)
+    particleTypes(particleStartIdx(threadID):particleStartIdx(threadID)+numParticlesThread(threadID)-1) &
+      = list%particleTypes(:list%numParticles)
 
     call deleteParticleList(list)
     !$OMP END PARALLEL
 
     ! particles => list%particles(:list%numParticles, :)
     call findParticleCells(tree, particles, leafIdx)
-    call insertParticles(tree, particles, leafIdx)
+    call insertParticles(tree, particles, particleTypes, leafIdx)
 
     ! nullify(particles)
     ! deallocate(leafIdx)
@@ -216,6 +220,7 @@ contains
     integer(i4) :: p1, p2, i, idx
 
     real(fp), dimension(:,:), pointer :: particles
+    integer(i1), dimension(:), pointer :: particleTypes
     real(fp), dimension(5) :: tmpParticle
     real(fp) :: c_r, sigma
     real(fp) :: rnd
@@ -223,6 +228,7 @@ contains
     idx = node%nodeIdx
     numParticles = tree%particleNumbers(idx)
     particles => tree%particles(tree%particleStartIndices(idx):tree%particleStartIndices(idx)+numParticles-1, :)
+    particleTypes => tree%particleTypes(tree%particleStartIndices(idx):tree%particleStartIndices(idx)+numParticles-1)
 
     !> number of collisions in the cell = 1/2 * N N_avg F_N (sigma_T, c_r)_max dt/V_c
     nCollisions = .5_fp * numParticles * node%stats%particleCounter%average &
@@ -253,7 +259,7 @@ contains
       do p2 = p1+1, numParticles
         c_r = norm2(abs(particles(p1, 3:)-particles(p2, 3:)))
         !> TODO: change to actual types
-        sigma = sigma_T(particles(p1, :), 1_i1, particles(p2, :), 1_i1, simParams)
+        sigma = sigma_T(particles(p1, :), particleTypes(p1), particles(p2, :), particleTypes(p2), simParams)
 
         call random_number(rnd)
         !> the collision occurs with probability c_r*sigma_T/(c_r*sigma_T)_max
@@ -295,6 +301,7 @@ contains
 
     integer(i4) :: p1, p2, i, idx, numParticles
     real(fp), dimension(:,:), pointer :: particles
+    integer(i1), dimension(:), pointer :: particleTypes
     real(fp), dimension(3) :: vecC_r, vecNewC_r, vecC_m
     real(fp) :: c_r, m1, m2
     real(fp) :: c_chi, s_chi, eps
@@ -303,14 +310,15 @@ contains
     idx = node%nodeIdx
     numParticles = tree%particleNumbers(idx)
     particles => tree%particles(tree%particleStartIndices(idx):tree%particleStartIndices(idx)+numParticles-1, :)
+    particleTypes => tree%particleTypes(tree%particleStartIndices(idx):tree%particleStartIndices(idx)+numParticles-1)
 
     do i = 1,numCollisions
       p1 = pairs(i)
       p2 = pairs(i) + 1
       vecC_r(:) = particles(p1, 3:) - particles(p2, 3:)
       c_r = norm2(vecC_r(:))
-      m1 = simParams%m(1) !> TODO: look up the type of a particle
-      m2 = simParams%m(1)
+      m1 = simParams%m(particleTypes(p1)) !> TODO: look up the type of a particle
+      m2 = simParams%m(particleTypes(p2))
       
       vecC_m(:) = (m1*particles(p1, 3:) + m2*particles(p2, 3:))/(m1+m2)
 

@@ -61,36 +61,39 @@ contains
     intersection = line1(:2) + u1 * (line1(3:4)-line1(:2))
   end function lineIntersection
 
-  !> sort the first dimension arr1 based on arr2
-  subroutine sort(arr1, arr2)
+  !> sort the first dimension arr1 and the 1D array arr2 based on arr3
+  subroutine sort(arr1, arr2, arr3)
     implicit none
     real(fp), dimension(:,:), pointer, intent(inout) :: arr1
-    integer(i4), dimension(:), pointer, intent(inout) :: arr2
+    integer(i1), dimension(:), pointer, intent(inout) :: arr2
+    integer(i4), dimension(:), pointer, intent(inout) :: arr3
 
-    call quicksort(arr1, arr2)
+    call quicksort(arr1, arr2, arr3)
   end subroutine sort 
 
   !> implementation of quick-sort where array arr1 is sorted in the first dimension based on arr2
   !> based on https://gist.github.com/1AdAstra1/6f7785373efe5bb6c254d2e20c78ccc4
-  recursive subroutine quicksort(arr1, arr2)
+  recursive subroutine quicksort(arr1, arr2, arr3)
     implicit none
     real(fp), dimension(:,:), intent(inout) :: arr1
-    integer(i4), dimension(:), intent(inout) :: arr2
+    integer(i1), dimension(:), intent(inout) :: arr2
+    integer(i4), dimension(:), intent(inout) :: arr3
 
     real(fp), dimension(5) :: temp1
-    integer(i4) :: first, last, i,j, temp2, pivot
+    integer(i4) :: first, last, i,j, temp3, pivot
+    integer(i1) :: temp2
 
     first = 1
-    last = size(arr2,1)
+    last = size(arr3,1)
     !> chose pivot element as element in the middle of the array
-    pivot = arr2((first+last)/2)
+    pivot = arr3((first+last)/2)
     i = first
     j = last
     do
-      do while(arr2(i) < pivot)
+      do while(arr3(i) < pivot)
         i = i+1
       end do 
-      do while(pivot < arr2(j))
+      do while(pivot < arr3(j))
         j = j-1
       end do 
       if (i >= j) then
@@ -98,20 +101,23 @@ contains
       end if 
       temp1 = arr1(i,:)
       temp2 = arr2(i)
+      temp3 = arr3(i)
       arr1(i,:) = arr1(j,:)
       arr2(i) = arr2(j)
+      arr3(i) = arr3(j)
       arr1(j,:) = temp1
       arr2(j) = temp2
+      arr3(j) = temp3
 
       i = i+1
       j = j-1
     end do
 
     if (first < i-1) then
-      call quicksort(arr1(first:i-1,:), arr2(first:i-1))
+      call quicksort(arr1(first:i-1,:), arr2(first:i-1), arr3(first:i-1))
     end if 
     if (j+1 < last) then
-      call quicksort(arr1(j+1:last,:), arr2(j+1:last))
+      call quicksort(arr1(j+1:last,:), arr2(j+1:last), arr3(j+1:last))
     end if 
     
   end subroutine quicksort 

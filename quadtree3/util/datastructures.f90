@@ -33,6 +33,7 @@ module m_datastructures
 
   type :: ParticleList
     real(fp), pointer, dimension(:, :) :: particles
+    integer(i1), pointer, dimension(:) :: particleTypes
     integer(i4) :: chunksize
     integer(i4) :: length, numParticles
   end type
@@ -79,6 +80,7 @@ contains
     list%numParticles = 0
     list%length = list%chunksize
     allocate(list%particles(list%length, 5))
+    allocate(list%particleTypes(list%length))
   end subroutine initializeParticleList
 
   subroutine extendParticleListLength(list)
@@ -86,12 +88,16 @@ contains
     type(ParticleList), intent(inout) :: list
     
     real(fp), pointer, dimension(:,:) :: tmp
+    integer(i1), pointer, dimension(:) :: tmpTypes
 
     !> temporarily copy the current particles to tmp
     tmp => list%particles
     nullify(list%particles)
     allocate(list%particles(list%length + list%chunksize, 5))
 
+    tmpTypes => list%particleTypes
+    nullify(list%particleTypes)
+    allocate(list%particleTypes(list%length + list%chunksize))
 
     ! !> temporarily copy the current particles to tmp
     ! allocate(tmp(5,list%length))
@@ -102,9 +108,12 @@ contains
 
     !> copy the particles back to the particles array
     list%particles(1:list%length,:) = tmp(:, :)
+    list%particleTypes(1:list%length) = tmpTypes(:)
+
     list%length = list%length + list%chunksize
 
     deallocate(tmp)
+    deallocate(tmpTypes)
   end subroutine extendParticleListLength
 
   subroutine deleteParticleList(list)
@@ -112,29 +121,38 @@ contains
     type(ParticleList), intent(inout) :: list
 
     deallocate(list%particles)
+    deallocate(list%particleTypes)
     list%numParticles = 0
     list%length = 0
     list%chunksize = 0
   end subroutine deleteParticleList
 
   
-  subroutine append(list, particle)
+  subroutine append(list, particle, particleType)
     implicit none
     type(ParticleList), intent(inout) :: list
     real(fp), dimension(5), intent(in) :: particle
+    integer(i1), intent(in) :: particleType
 
     if (list%numParticles == list%length) then
       call extendParticleListLength(list)
     end if
 
     list%numParticles = list%numParticles + 1
-    list%particles(list%numParticles,:) = particle(:)
+    list%particles(list%numParticles,:) = particle
+    list%particleTypes(list%numParticles) = particleType
   end subroutine
 
-  subroutine appendMultiple(list, particles)
+  subroutine appendMultiple(list, particles, particleTypes)
     implicit none
     type(ParticleList), intent(inout) :: list
     real(fp), dimension(:,:), pointer, intent(in) :: particles
+    integer(i1), dimension(:), pointer, intent(in) :: particleTypes
+
+    if (.not.(size(particleTypes,1) == size(particles,1 ))) then
+      print *, "particles array must have same length as particleTypes"
+      return
+    end if 
 
     if (.not.associated(particles)) then
       return
@@ -144,6 +162,7 @@ contains
     end if
 
     list%particles(list%numParticles:list%numParticles+size(particles,1),:) = particles(:,:)
+    list%particleTypes(list%numParticles:list%numParticles+size(particles,1)) = particleTypes
     list%numParticles = list%numParticles + size(particles,1) 
   end subroutine
 

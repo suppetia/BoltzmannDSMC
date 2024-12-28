@@ -1,5 +1,5 @@
 program test_basic_features
-  use m_types, only: fp, i4
+  use m_types, only: fp, i4, i1
   use m_quadtree, only: QuadTreeNode, QuadTree, insertParticles, findParticleCells, splitNode, &
     NodeStack, splitNodes, updateTreeNodes, deleteTree
   use m_datastructures, only: QuadTreeParameters, SimulationParameters
@@ -14,17 +14,20 @@ program test_basic_features
   type(SimulationParameters), pointer :: simParams
 
   real(fp), dimension(:,:), pointer :: particles
+  integer(i1), dimension(:), pointer :: particleTypes
   integer(i4), dimension(:), pointer :: leafIdx
 
   integer :: i,it, status
-  integer(i4) :: tStart, tStop
+  integer(i4) :: tStart, tStop, numParticlesPerStep, numSimulationSteps
 
   character(len=100) :: filebasename
   logical :: storeParticles
 
   ! filebasename = "data/test_18"
-  filebasename = "data/test_19"
-  storeParticles = .true.
+  filebasename = "data/wing1"
+  numParticlesPerStep = 10
+  numSimulationSteps = 2000
+  storeParticles = .false.
 
   !$OMP PARALLEL
   !$OMP SINGLE
@@ -39,19 +42,21 @@ program test_basic_features
   allocate(params)
   params%width = 1._fp
   params%height = 1._fp
-  params%elementSplitThreshold = 500
-  params%elementMergeThreshold = 400
-  params%elementChunkSize = 50
+  params%elementSplitThreshold = 30
+  params%elementMergeThreshold = 20
+  params%elementChunkSize = 10
   params%cellHistoryLength = 30
 
   allocate(simParams)
   simParams%dt = 1e-4_fp
-  simParams%numTimeSteps = 2000
-  simParams%writeFrequency = 40
-  allocate(simParams%m(1))
+  simParams%numTimeSteps = numSimulationSteps
+  simParams%writeFrequency = 10
+  allocate(simParams%m(2))
   simParams%m(1) = 1e-25
+  simParams%m(2) = 5e-25
   allocate(simParams%d_ref(1))
   simParams%d_ref(1) = 5e-10
+  simParams%d_ref(2) = 5e-9
   simParams%F_N = 1e14
   simParams%collisionModel = 1
   simParams%V_c = 1._fp
@@ -137,7 +142,10 @@ program test_basic_features
   ! print *, particles(:, 1)
 
 
-  allocate(particles(1000,5))
+  allocate(particles(numParticlesPerStep,5))
+  allocate(particleTypes(numParticlesPerStep))
+  particleTypes(:numParticlesPerStep/2) = 1
+  particleTypes(:numParticlesPerStep/2) = 2
   do it = 1, simParams%numTimeSteps
     print *, it
     call random_number(particles)
@@ -156,7 +164,7 @@ program test_basic_features
     ! particles(:,4) = 0._fp
     call findParticleCells(tree, particles, leafIdx)
     ! print *, leafIdx, tree%leafNumber
-    call insertParticles(tree, particles, leafIdx)
+    call insertParticles(tree, particles, particleTypes, leafIdx)
     call updateTreeNodes(tree, simParams)
 
     ! call random_number(particles)

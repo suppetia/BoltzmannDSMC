@@ -374,7 +374,7 @@ contains
 
     allocate(particleLocations(numParticles))
     allocate(tmpParticles(numParticles, 5))
-    ! allocate(tmpParticleTypes(numParticles))
+    allocate(tmpParticleTypes(numParticles))
 
     ! !> copy the particles to a temporary array for fast access and easy sorting
     ! tmpParticles = tree%particles(idxStartParticles:idxStartParticles+numParticles-1, :)
@@ -384,12 +384,12 @@ contains
     ! print *, node%tmpParticleCount, associated(node%tmpParticles)
     if (node%tmpParticleCount < 0) then
       tmpParticles = tree%particles(idxStartParticles:idxStartParticles+numParticles-1, :)
-      ! tmpParticleTypes = tree%particleTypes(idxStartParticles:idxStartParticles+numParticles-1)
+      tmpParticleTypes = tree%particleTypes(idxStartParticles:idxStartParticles+numParticles-1)
     else
       tmpParticles = node%tmpParticles
-      ! tmpParticleTypes = node%tmpParticleTypes
+      tmpParticleTypes = node%tmpParticleTypes
       deallocate(node%tmpParticles)
-      ! deallocate(node%tmpParticleTypes)
+      deallocate(node%tmpParticleTypes)
       node%tmpParticleCount = -1
     end if
     !> mark node as freshly split
@@ -419,6 +419,7 @@ contains
     do j=1,4
       ! idx(:i) = idx(:i) + numParticlesPerChildCell(i)
       allocate(node%children(j)%tmpParticles(numParticlesPerChildCell(j), 5))
+      allocate(node%children(j)%tmpParticleTypes(numParticlesPerChildCell(j)))
       node%children(j)%tmpParticleCount = numParticlesPerChildCell(j)
     end do
       
@@ -430,11 +431,12 @@ contains
       ! tree%particleTypes(idx(particleLocations(i))) = tmpParticleTypes(i)
 
       node%children(particleLocations(i))%tmpParticles(idx(particleLocations(i)),:) = tmpParticles(i, :)
+      node%children(particleLocations(i))%tmpParticleTypes(idx(particleLocations(i))) = tmpParticleTypes(i)
 
       idx(particleLocations(i)) = idx(particleLocations(i)) + 1
     end do
     deallocate(tmpParticles)
-    ! deallocate(tmpParticleTypes)
+    deallocate(tmpParticleTypes)
     deallocate(particleLocations)
 
     !> check if all the child cells fulfill the threshold condition
@@ -496,6 +498,7 @@ contains
     node%tmpParticleCount = numParticles
 
     allocate(node%tmpParticles(numParticles, 5))
+    allocate(node%tmpParticleTypes(numParticles))
 
     !> merge the cell stats from the child nodes
     call initializeCellStats(node%stats, tree%treeParams)
@@ -512,13 +515,16 @@ contains
         numParticles = tree%particleNumbers(childNode%nodeIdx)
         j = tree%particleStartIndices(childNode%nodeIdx)
         node%tmpParticles(idx:idx+numParticles-1, :) = tree%particles(j:j+numParticles-1, :)
+        node%tmpParticleTypes(idx:idx+numParticles-1) = tree%particleTypes(j:j+numParticles-1)
 
         !> remove the pointer to this childNode from the tree
         tree%leafs(childNode%nodeIdx)%node => null()
       else
         numParticles = childNode%tmpParticleCount
         node%tmpParticles(idx:idx+numParticles-1, :) = childNode%tmpParticles
+        node%tmpParticleTypes(idx:idx+numParticles-1) = childNode%tmpParticleTypes
         deallocate(childNode%tmpParticles)
+        deallocate(childNode%tmpParticleTypes)
         ! if (associated(childNode%tmpParticles)) then
         !   if (numParticles > 0) then
         !     node%tmpParticles(:, idx:idx+numParticles-1) = childNode%tmpParticles
@@ -610,7 +616,6 @@ contains
     integer(i1) :: i
 
     if (associated(n%children)) then
-      !> TODO: can be parallelized
       do i = 1,4
         childNode => n%children(i)
         call findLeafs(childNode, newLeafsStack)
@@ -719,6 +724,9 @@ contains
     tmpParticles => tree%particles
     nullify(tree%particles)
 
+    tmpParticleTypes => tree%particleTypes
+    nullify(tree%particleTypes)
+
     
     ! allocate(tmpLeafs(size(tree%leafs, 1)))
     ! tmpLeafs = tree%leafs
@@ -780,6 +788,7 @@ contains
 
     !> allocate the new particles array
     allocate(tree%particles(idx, 5))
+    allocate(tree%particleTypes(idx))
     
     !> TODO: can be parallelized
     !$OMP PARALLEL DO private(idx, num, n) shared(tree, tmpParticles,simParams)
@@ -791,16 +800,15 @@ contains
 
       if (n%tmpParticleCount < 0) then
         tree%particles(idx:idx+num-1, :) = tmpParticles(n%tmpParticleIndex:n%tmpParticleIndex+num-1, :)
-        ! tree%particleTypes(idx:idx+num) = tmpParticleTypes(n%tmpParticleIndex:n%tmpParticleIndex+num)
+        tree%particleTypes(idx:idx+num-1) = tmpParticleTypes(n%tmpParticleIndex:n%tmpParticleIndex+num-1)
         n%tmpParticleIndex = -1
         n%tmpParticleCount = -1
       else
         ! if (num > 0) then
         if (associated(n%tmpParticles)) then
           tree%particles(idx:idx+num-1, :) = n%tmpParticles
-          !> TODO: implement copying the particleTypes in mergeChildNodes
-          ! tree%particleTypes(idx:idx+num) = n%tmpParticleTypes
-          ! deallocate(n%tmpParticleTypes)
+          tree%particleTypes(idx:idx+num-1) = n%tmpParticleTypes
+          deallocate(n%tmpParticleTypes)
           deallocate(n%tmpParticles)
           n%tmpParticleCount = -1
         end if
@@ -837,14 +845,15 @@ contains
     deallocate(tmpParticles)
     deallocate(tmpParticleStartIndices)
     deallocate(tmpParticleNumbers)
-    ! deallocate(tmpParticleTypes)
+    deallocate(tmpParticleTypes)
   end subroutine updateTreeNodes
 
   
-  subroutine insertParticles(tree, particles, leafIdx)
+  subroutine insertParticles(tree, particles, particleTypes, leafIdx)
     implicit none
     type(QuadTree), pointer, intent(inout) :: tree
     real(fp), pointer, dimension(:,:), intent(inout) :: particles
+    integer(i1), pointer, dimension(:), intent(inout) :: particleTypes
     integer(i4), pointer, dimension(:), intent(inout) :: leafIdx
 
     integer(i4) :: i, j, start, currentIndex, particleStorage, &
@@ -863,7 +872,7 @@ contains
 
     !> sort the particles array based on the leafIdx
     ! call conditionedMergeSort(particles, leafIdx, 1, size(leafIdx))
-    call sort(particles, leafIdx)
+    call sort(particles, particleTypes, leafIdx)
 
     !> count the number of occurrences of each leaf index 
     !> and store the first particle index for each leaf 
@@ -911,12 +920,17 @@ contains
         particleStorage = currentNumParticles + numParticles(i)
         ! print *, particleStorage
         allocate(node%tmpParticles(particleStorage, 5))
+        allocate(node%tmpParticleTypes(particleStorage))
         !> copy the original particles
         node%tmpParticles(:currentNumParticles, :) = &
           tree%particles(tree%particleStartIndices(nodeIdx):tree%particleStartIndices(nodeIdx)+currentNumParticles-1, :)
+        node%tmpParticleTypes(:currentNumParticles) = &
+          tree%particleTypes(tree%particleStartIndices(nodeIdx):tree%particleStartIndices(nodeIdx)+currentNumParticles-1)
         !> copy the new particles
         node%tmpParticles(currentNumParticles+1:currentNumParticles+numParticles(i), :) = &
           particles(startIdx(i):startIdx(i)+numParticles(i)-1, :)
+        node%tmpParticleTypes(currentNumParticles+1:currentNumParticles+numParticles(i)) = &
+          particleTypes(startIdx(i):startIdx(i)+numParticles(i)-1)
         node%tmpParticleCount = currentNumParticles + numParticles(i)
       !> otherwise just copy the new particles
       else
@@ -924,6 +938,8 @@ contains
         ! print *, particleStorage, currentNumParticles, numParticles(i), particleStartIdx
         tree%particles(particleStartIdx:particleStartIdx+numParticles(i)-1,:) = &
           particles(startIdx(i):startIdx(i)+numParticles(i)-1,:)
+        tree%particleTypes(particleStartIdx:particleStartIdx+numParticles(i)-1) = &
+          particleTypes(startIdx(i):startIdx(i)+numParticles(i)-1)
         tree%particleNumbers(nodeIdx) = currentNumParticles + numParticles(i)
       end if
       ! node%numParticles = node%numParticles + numParticles(i)
