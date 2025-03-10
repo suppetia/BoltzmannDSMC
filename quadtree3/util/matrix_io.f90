@@ -1,5 +1,5 @@
 module m_matrix_io  !
-  use m_types, only: fp, i4
+  use m_types, only: fp, i4, i1
   implicit none
 contains
 
@@ -52,4 +52,39 @@ contains
     call h5fclose_f(fileID, error)
     call h5close_f(error)
   end subroutine writeRealMatrixToH5Dataset
+
+  subroutine readParticleMatrixFromFile(filename, particles, particleTypes)
+    character(len=*), intent(in) :: filename
+    real(fp), pointer, intent(inout) :: particles(:,:)
+    integer(i1), pointer, intent(inout) :: particleTypes(:)
+
+    integer :: i, j, nrows, ncols
+    integer :: io_status
+
+    integer :: io = 10
+
+    !> Open the file for reading
+    open(unit=io, file=filename, status='old', action='read', iostat=io_status)
+    if (io_status /= 0) then
+      print *, 'Error opening file: ', trim(filename)
+      return
+    end if
+
+    !> Read the dimensions of the matrix
+    read(io, *) nrows
+
+    !> Allocate the matrix array
+    allocate(particles(nrows, 5))
+    allocate(particleTypes(nrows))
+
+    !> Read the matrix elements
+    do i = 1, nrows
+      read(io, *) particleTypes(i), particles(i,:)
+      ! read(io, *) (matrix(i, j), j = 1, ncols)
+    end do
+
+    !> Close the file
+    close(io)
+
+  end subroutine readParticleMatrixFromFile
 end module m_matrix_io 

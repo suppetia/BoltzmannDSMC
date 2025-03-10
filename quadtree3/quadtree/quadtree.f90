@@ -1,7 +1,7 @@
 module m_quadtree
-  use m_types, only: fp, i1, i4, i8
+  use m_types, only: fp, i1, i2, i4, i8
   use m_datastructures, only: QuadTreeParameters, SimulationParameters, StructuresPointer, CellStats, &
-    addParticleCount, initializeCellStats, deleteCellStats
+    addIntegerCount, initializeCellStats, deleteCellStats
   use m_util, only: lineIntersection, sort, k_B
 
   use omp_lib
@@ -16,7 +16,7 @@ module m_quadtree
     !> 00 | 01
     !> binary representation of each level
     !> the first level is stored on the most right bits progressing to the left
-    !> in the bits 58-63 the level of the cell is stored (bit 64 is used for the sign to mark invalid values)
+    !> in the bits 58-63 (starting with 0) the level of the cell is stored 
     !> therefore the maximum level can be (8*8-6)/2=58/2=29
     integer(i8) :: cellID = 0
 
@@ -217,8 +217,9 @@ contains
     real(fp) :: newWidth, newHeight, x,y
     integer(i8) :: level
 
-    integer(i1) :: j
     integer(i4) :: i
+    integer(i1) :: j
+    integer(i2) :: k
     integer(i4), dimension(4) :: idx
 
     type(QuadTreeNode), pointer :: childNode
@@ -257,14 +258,28 @@ contains
       node%children(i)%cellID = node%cellID + shiftl(i-1, level*2)
       !> update the cellID by the cellLevel
       call mvbits(level + 1_i8, 0, 6, node%children(i)%cellID, 58)
-      !> store the information of the parent cell
+      !> store the information about the parent cell
       node%children(i)%parent => node
 
       !> split the cellstats evenly for all child nodes
       call initializeCellStats(node%children(i)%stats, tree%treeParams)
+      !> split the particle stats
       node%children(i)%stats%particleCounter%history = node%stats%particleCounter%history / 4
       node%children(i)%stats%particleCounter%average = node%stats%particleCounter%average / 4
       node%children(i)%stats%particleCounter%currentPosition = node%stats%particleCounter%currentPosition
+
+      !> split the cell stats
+      node%children(i)%stats%statsCounter%history = node%stats%statsCounter%history / 4
+      node%children(i)%stats%statsCounter%average = node%stats%statsCounter%average / 4
+      node%children(i)%stats%statsCounter%currentPosition = node%stats%statsCounter%currentPosition
+
+      !> split the species stats
+      do k = 1, tree%treeParams%numParticleSpecies
+        node%children(i)%stats%speciesStatsCounter(k)%counter%history = node%stats%speciesStatsCounter(k)%counter%history / 4
+        node%children(i)%stats%speciesStatsCounter(k)%counter%average = node%stats%speciesStatsCounter(k)%counter%average / 4
+        node%children(i)%stats%speciesStatsCounter(k)%counter%currentPosition = &
+          node%stats%speciesStatsCounter(k)%counter%currentPosition
+      end do 
     end do
     call deleteCellStats(node%stats)
 
@@ -480,6 +495,7 @@ contains
     type(QuadTreeNode), pointer :: childNode
 
     integer(i1) :: i
+    integer(i2) :: k
     integer(i4) :: j, idx, numParticles
 
     !> update the number of leafs in the tree
@@ -503,22 +519,34 @@ contains
     !> merge the cell stats from the child nodes
     call initializeCellStats(node%stats, tree%treeParams)
     node%stats%particleCounter%currentPosition = node%children(1)%stats%particleCounter%currentPosition
+    node%stats%statsCounter%currentPosition = node%children(1)%stats%particleCounter%currentPosition
+    do j = 1, tree%treeParams%numParticleSpecies
+      node%stats%speciesStatsCounter(j)%counter%currentPosition = node%children(1)%stats%particleCounter%currentPosition
+    end do 
 
     idx = 1
 
     do i=1,4
       childNode => node%children(i)
+      !> update particle stats
       node%stats%particleCounter%history = node%stats%particleCounter%history + childNode%stats%particleCounter%history
       node%stats%particleCounter%average = node%stats%particleCounter%average + childNode%stats%particleCounter%average
+      !> update cell stats
+      node%stats%statsCounter%history = node%stats%statsCounter%history + childNode%stats%statsCounter%history
+      node%stats%statsCounter%average = node%stats%statsCounter%average + childNode%stats%statsCounter%average
+      !> update species stats
+      do k = 1, tree%treeParams%numParticleSpecies
+        node%stats%speciesStatsCounter(k)%counter%history = node%stats%speciesStatsCounter(k)%counter%history &
+          + childNode%stats%speciesStatsCounter(k)%counter%history
+        node%stats%speciesStatsCounter(k)%counter%average = node%stats%speciesStatsCounter(k)%counter%average &
+          + childNode%stats%speciesStatsCounter(k)%counter%average
+      end do
 
       if (childNode%tmpParticleCount < 0) then !> if the node was a leaf in the last iteration
         numParticles = tree%particleNumbers(childNode%nodeIdx)
         j = tree%particleStartIndices(childNode%nodeIdx)
         node%tmpParticles(idx:idx+numParticles-1, :) = tree%particles(j:j+numParticles-1, :)
         node%tmpParticleTypes(idx:idx+numParticles-1) = tree%particleTypes(j:j+numParticles-1)
-
-        !> remove the pointer to this childNode from the tree
-        tree%leafs(childNode%nodeIdx)%node => null()
       else
         numParticles = childNode%tmpParticleCount
         node%tmpParticles(idx:idx+numParticles-1, :) = childNode%tmpParticles
@@ -532,9 +560,13 @@ contains
         !   deallocate(childNode%tmpParticles)
         ! end if
       end if
+      if (childNode%nodeIdx > 0) then
+        !> remove the pointer to this childNode from the tree
+        tree%leafs(childNode%nodeIdx)%node => null()
+      end if 
       idx = idx + numParticles
-      nullify(childNode%parent)
-      ! call deleteCellStats(childNode%stats)
+      ! childNode%parent => null()
+      call deleteCellStats(childNode%stats)
       if (associated(childNode%structures)) then
         deallocate(childNode%structures)
       end if
@@ -685,6 +717,7 @@ contains
     type(QuadTreeNode), pointer :: n
 
     integer(i4) :: i, idx, num
+    integer(i2) :: j
 
     type(QuadTreeNodePointer), pointer, dimension(:) :: tmpLeafs
     real(fp), pointer, dimension(:, :) :: tmpParticles
@@ -692,6 +725,14 @@ contains
     integer(i4), pointer, dimension(:) :: tmpParticleNumbers
     integer(i4), pointer, dimension(:) :: tmpParticleStartIndices
 
+    real(fp) :: density !> particle density
+    real(fp) :: mass !> mass of particles in a cell
+    real(fp) :: rho !> mass density
+    real(fp) :: c0_x, c0_y, c0_z !> mean velocity components
+    real(fp) :: cx_sq, cy_sq, cz_sq !> mean squared relative velocity components
+    real(fp) :: c_sq !> mean squared relative velocity (relative = c - c_mean)
+    real(fp) :: p !> pressure
+    real(fp) :: T !> translational temperature
 
     !> store new leafs in the stack
     call initializeStack(stack)
@@ -700,17 +741,26 @@ contains
     !> so they also won't be merged and merging only adds new nodes to the stack
     ! print *, "num leafs ", tree%leafNumber
     call splitNodes(tree)
-    ! print *, "num leafs ", tree%leafNumber
+    print *, "num leafs ", tree%leafNumber
 
     !> remove unnecessary nodes
     !> TODO: run this only on the "old" leaf nodes as newly splitted nodes don't need to be merged
     ! call removeUnnecessaryNodes(tree, stack)
     call removeUnnecessaryNodesDownwards(tree%root, tree, stack)
+    ! do i = 1, size(tree%leafs)
+    !   if (associated(tree%leafs(i)%node)) then
+    !     if (associated(tree%leafs(i)%node%children)) then
+    !       call removeUnnecessaryUpwardNodes(tree%leafs(i)%node%parent, tree, stack)
+    !     end if
+    !   end if 
+    ! end do 
     ! print *, "num leafs after node removal", tree%leafNumber
     ! print *, stack%topIndex
 
     call findLeafs(tree%root, stack)
     ! print *, "num leafs after searching leafs", stack%topIndex
+    ! print *, stack%topIndex - tree%leafNumber
+    ! print *, stack%topIndex - size(tree%leafs)
     
     tmpLeafs => tree%leafs
     nullify(tree%leafs)
@@ -791,7 +841,9 @@ contains
     allocate(tree%particleTypes(idx))
     
     !> TODO: can be parallelized
-    !$OMP PARALLEL DO private(idx, num, n) shared(tree, tmpParticles,simParams)
+    !$OMP PARALLEL DO &
+    !$OMP private(idx, num, n, density, mass, rho, c0_x, c0_y, c0_z, cx_sq, cy_sq, cz_sq, c_sq, p, T, j) &
+    !$OMP shared(tree, tmpParticles,simParams)
     do i = 1, tree%leafNumber
       idx = tree%particleStartIndices(i)
       num = tree%particleNumbers(i)
@@ -816,7 +868,29 @@ contains
         ! n%tmpParticleCount = -1
       end if
       !> update the cell stats
-      call addParticleCount(n%stats%particleCounter, num)
+      ! call addParticleCount(n%stats%particleCounter, num)
+      call addIntegerCount(n%stats%particleCounter, [num])
+
+      !> TODO: STORE THE STATS FOR EACH PARTICLE TYPE ?
+      !> calculate the node stats
+      density = num / (simParams%V_c * cellWidth(n) * cellHeight(n)) * simParams%F_N
+      !> TODO: update using the particle types
+      rho = simParams%m(1) * density
+      
+      !> calculate the mean velocity components
+      c0_x = sum(tree%particles(idx:idx+num-1, 3)) / num
+      c0_y = sum(tree%particles(idx:idx+num-1, 4)) / num
+      c0_z = sum(tree%particles(idx:idx+num-1, 5)) / num
+      !> calculate the mean relative velocities
+      cx_sq = sum((tree%particles(idx:idx+num-1, 3)-c0_x) ** 2)/num
+      cy_sq = sum((tree%particles(idx:idx+num-1, 4)-c0_y) ** 2)/num
+      cz_sq = sum((tree%particles(idx:idx+num-1, 5)-c0_z) ** 2)/num
+      
+      c_sq = cx_sq + cy_sq + cz_sq
+      p = rho / 3 * c_sq
+      !> translational temperature 3/2 k * T_tr = 1/2 m * \overbar{c^2}
+      T = simParams%m(1) / k_B * c_sq / 3 
+
       ! n%stats%n = num / (simParams%V_c * cellWidth(n) * cellHeight(n)) * simParams%F_N
       ! !> TODO: update using the particle types
       ! n%stats%rho = simParams%m(1) * n%stats%n
@@ -1026,6 +1100,7 @@ contains
     implicit none
     type(QuadTree), pointer, intent(inout) :: tree
 
+    deallocate(tree%treeParams)
     call deleteSubtree(tree%root, tree)
     if (associated(tree%root%structures)) then
       deallocate(tree%root%structures)

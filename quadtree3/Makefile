@@ -1,8 +1,8 @@
 #!/bin/bash
 
-MAIN=test_basic_features
+MAIN=run_simulation
 
-OBJECTS=simulation.o
+OBJECTS=
 
 MODDIR=$(shell pwd)/include
 LIBDIR=$(shell pwd)/lib
@@ -17,7 +17,7 @@ CFLAGS:=-I$(MODDIR) -fopenmp
 # Linker
 LD=gfortran
 # Linker flags
-LDFLAGS= -L$(LIBDIR) -L$(HDF5_LIBDIR) -lquadtree -lutil -lhdf5 -lhdf5_fortran -fopenmp
+LDFLAGS= -L$(LIBDIR) -L$(HDF5_LIBDIR) -lsimulation -lquadtree -lutil -lhdf5 -lhdf5_fortran -lcfgio -fopenmp
 
 # archive utility
 AR=ar
@@ -42,13 +42,15 @@ $(MAIN).out: submodules $(OBJECTS) $(MAIN).o
 submodules: 
 	$(MAKE) -C util
 	$(MAKE) -C quadtree
+	$(MAKE) -C simulation
 
 %.o: %.f90
 	$(FC) -c $(CFLAGS) $< -o $@ -J$(MODDIR)
 
 clean:
 	rm -f $(MAIN).out *.o *.mod
-	rm -f $(MODDIR)/*.mod
+	# cd $(MODDIR) && rm $(patsubst %.o,m_%.mod, $(OBJECTS))
 	$(MAKE) -C util clean
 	$(MAKE) -C quadtree clean
+	$(MAKE) -C simulation clean
 

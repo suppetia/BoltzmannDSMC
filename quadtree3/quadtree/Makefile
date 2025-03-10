@@ -41,6 +41,6 @@ $(LIBDIR):
 
 clean:
 	rm -f $(OBJECTS) $(ARCHIVE)
-	rm -f $(MODDIR)/*.mod
+	cd $(MODDIR) && rm $(patsubst %.o,m_%.mod, $(OBJECTS))
 	rm -f $(LIBDIR)/$(ARCHIVE)
 

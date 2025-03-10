@@ -1,10 +1,12 @@
 import os
+from functools import partial
+
 # os.environ["QT_QPA_PLATFORM"] = "wayland"
 # os.environ["XDG_SESSION_TYPE"] = "xcb"
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Rectangle, FancyArrowPatch
 from matplotlib.collections import PatchCollection, LineCollection
 from matplotlib.animation import FuncAnimation
 import matplotlib.colors as mcolors
@@ -36,6 +38,75 @@ def read_particle_matrix(filename, datasetID):
         return np.array([[]])
     return np.array(data) # transpose since fortran matrices are stored columnwise
 
+# def get_stream_lines(cell_matrix):
+#     stream_lines = np.empty((cell_matrix.shape[0], 4), dtype=np.float64)
+#     stream_lines[:, 1] = cell_matrix[:, 0] + cell_matrix[:, 2]/2
+#     stream_lines[:, 2] = cell_matrix[:, 1] + cell_matrix[:, 3]/2
+#     stream_lines[:, 3] = cell_matrix[:, 9]
+#     stream_lines[:, 4] = cell_matrix[:, 10]
+#     return stream_lines
+
+def get_stream_lines(particle_matrix, averaging_rect, simulation_area):
+
+    # def particle_in_rect(particle, rect_size, i,j):
+    #     return (
+    #             i*rect_size[0] <= particle[0] < (i+1)*rect_size[0]
+    #             and j*rect_size[1] <= particle[1] < (j+1)*rect_size[1]
+    #     )
+    #
+    # p_in_rect = np.vectorize(particle_in_rect, otypes=[bool])
+
+    w,h = averaging_rect
+
+    num_x = int(np.ceil(simulation_area[0]/w))
+    num_y = int(np.ceil(simulation_area[1]/h))
+
+    x,y = np.meshgrid(np.linspace(0, simulation_area[0], num=num_x),
+                      np.linspace(0, simulation_area[1], num=num_y))
+
+    u = np.zeros_like(x)
+    v = np.zeros_like(x)
+
+    for i in range(num_x):
+        for j in range(num_y):
+            if particle_matrix.size != 0:
+                mask = ((i * averaging_rect[0] <= particle_matrix[0,:])
+                        & (particle_matrix[0,:] <  (i + 1) * averaging_rect[0]))
+                mask &= ((j * averaging_rect[1] <= particle_matrix[1,:])
+                        & (particle_matrix[1,:] < (j + 1) * averaging_rect[1]))
+                particles = particle_matrix[:, mask]
+
+                u[j,i] = np.mean(particles[2,:])
+                v[j,i] = np.mean(particles[3,:])
+
+    #
+    # x,y,u,v = [],[],[],[]
+    #
+    # for i in range(num_x):
+    #     for j in range(num_y):
+    #         # mask = p_in_rect(particle_matrix, averaging_rect, i,j)
+    #         if particle_matrix.size != 0:
+    #             mask = ((i * averaging_rect[0] <= particle_matrix[0,:])
+    #                     & (particle_matrix[0,:] <  (i + 1) * averaging_rect[0]))
+    #             mask &= ((j * averaging_rect[1] <= particle_matrix[1,:])
+    #                     & (particle_matrix[1,:] < (j + 1) * averaging_rect[1]))
+    #             particles = particle_matrix[:, mask]
+    #
+    #             mean_vx = np.mean(particles[2,:])
+    #             mean_vy = np.mean(particles[3,:])
+    #
+    #         else:
+    #             mean_vx = mean_vy = 0
+    #
+    #         x.append((i+.5)*w)
+    #         y.append((j+.5)*h)
+    #         u.append(mean_vx)
+    #         v.append(mean_vy)
+
+    return x,y,u,v
+
+
+
 def get_grid_and_particles(cell_matrix, particle_matrix):
     patches = []
     colors = []
@@ -48,7 +119,7 @@ def get_grid_and_particles(cell_matrix, particle_matrix):
     max_brightness = max(max_brightness, np.max(cell_matrix[:, 4], axis=0))
     # print(max_brightness)
     # cnorm = mcolors.Normalize(vmin=0, vmax=np.mean(max_brightness), clip=True)
-    cnorm = mcolors.Normalize(vmin=1e-3*max_brightness, vmax=.1*max_brightness, clip=True)
+    cnorm = mcolors.Normalize(vmin=1e-4*max_brightness, vmax=.01*max_brightness, clip=True)
     # cnorm = mcolors.LogNorm(vmin=1e-3*max_brightness, vmax=.1*max_brightness, clip=True)
 
     for cell in cell_matrix:
@@ -68,6 +139,8 @@ def get_grid_and_particles(cell_matrix, particle_matrix):
         #     points.append([cell[i], cell[i+1]])
         #     print(cell[i], cell[i+1])
 
+    if particle_matrix.size == 0:
+        return [], (patches, colors)
     points_x = particle_matrix[0,:]
     # np.place(points_x, points_x < 0, np.nan)
     vel_x = particle_matrix[2,:]
@@ -81,11 +154,11 @@ def get_grid_and_particles(cell_matrix, particle_matrix):
 
     return [points_x, points_y, vel_x, vel_y, vel_z], (patches, colors)
 
-def update_plot(num, img_freq, img_offset, filebasename, artists, display_params, hist_params):
+def update_plot(num, fig, ax, img_freq, img_offset, filebasename, artists, display_params, hist_params, **kwargs):
 
-    # print(num)
+    print(num)
 
-    disp_grid, disp_particles, disp_density, disp_vel_hist = display_params
+    disp_grid, disp_particles, disp_density, disp_vel_hist, disp_streamvectors, disp_streamplot = display_params
 
     rect, ax_hist, num_bins = hist_params
 
@@ -137,12 +210,39 @@ def update_plot(num, img_freq, img_offset, filebasename, artists, display_params
 
 
     if disp_particles:
-        artists[0].set_offsets(np.c_[points[0], points[1]])
+        if points:
+            artists[0].set_offsets(np.c_[points[0], points[1]])
     artists[1].set_paths(grid)
     if disp_grid:
         artists[1].set_edgecolor("r")
     if disp_density:
         artists[1].set_facecolor(colors)
+
+    if disp_streamvectors or disp_streamplot:
+        x,y,u,v = get_stream_lines(particle_mat, kwargs["averaging_area"], kwargs["simulation_area"])
+        if disp_streamvectors:
+            artists[3].set_UVC(u,v)
+        if disp_streamplot:
+            if len(artists) == 5:
+                artists[4].lines.remove()
+                # artists[4].arrows.remove()
+                artists[4].arrows.set_paths([])
+                for art in ax.get_children():
+                    if not isinstance(art, FancyArrowPatch):
+                        continue
+                    art.remove()
+                    # for a in artists[4].arrows:
+                #     print(a)
+                # try:
+                #     artists[4].arrows.remove()
+                # except:
+                #     ...
+
+            else:
+                artists.append(None)
+            new_streamplot = ax.streamplot(x,y,u,v, broken_streamlines=True, color="red")
+            artists[4] = new_streamplot
+
 
 
 
@@ -150,20 +250,30 @@ def update_plot(num, img_freq, img_offset, filebasename, artists, display_params
 # filename_image = "data/test_8.png"
 # filebasename = "data/matrix8"
 # filename_image = "../data/test_11.png"
-filebasename = "../data/test_19"
+# filebasename = "../data/test_19"
+filebasename = "../data/soundwaves/soundwaves2"
+filebasename = "../data/vertical_line/vl2"
+# filebasename = "../data/wing1"
 # filebasename = "../data/empty1x1"
 
-display_grid = True#True
+display_grid = True
 display_particles = True
-display_density = False
-display_vel_hist = True
+display_density = True
+display_vel_hist = False
 bin_count = 50
+
+display_stream = False
+display_streamplot = True
+divs_x = 10
+divs_y = 10
+arrow_scale = 50000
+
 
 save_animation = False
 
-img_freq = 1
+img_freq = 10
 img_offset = 0#527
-num_images = 200#//4
+num_images = 2000//img_freq#//4
 # num_images = 1000 - img_offset
 
 rect = np.array([1000,1400,300,300])
@@ -212,11 +322,28 @@ else:
 # particles = read_particle_matrix(filebasename+".h5", 0)
 # print(particles)
 
+x,y,u,v = get_stream_lines(np.array([[]]),
+                           (root.width/divs_x, root.height/divs_y),
+                           (root.width, root.height))
+stream = ax.quiver(x,y,u,v, scale=arrow_scale)
+print(type(stream))
 
-ani = FuncAnimation(fig, update_plot, fargs=(img_freq, img_offset, filebasename,
-                                             [pts, patch, contours],
-                                             [display_grid, display_particles, display_density, display_vel_hist],
-                                             [rect, ax_hist, bin_count]),
+
+# ani = FuncAnimation(fig, update_plot, fargs=(img_freq, img_offset, filebasename,
+#                                              [pts, patch, contours, stream],
+#                                              [display_grid, display_particles, display_density, display_vel_hist, display_stream],
+#                                              [rect, ax_hist, bin_count]),
+#                     frames=num_images+1, interval=100, repeat=True)
+
+ani = FuncAnimation(fig, partial(update_plot,
+                                 fig=fig, ax=ax,
+                                 img_freq=img_freq, img_offset=img_offset, filebasename=filebasename,
+                                 artists=[pts, patch, contours, stream],
+                                 display_params=[display_grid, display_particles, display_density, display_vel_hist, display_stream, display_streamplot],
+                                 hist_params=[rect, ax_hist, bin_count],
+                                 simulation_area=(root.width, root.height),
+                                 averaging_area=(root.width/divs_x, root.height/divs_y)
+                                 ),
                     frames=num_images+1, interval=100, repeat=True)
 
 #

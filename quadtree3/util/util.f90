@@ -16,11 +16,26 @@ contains
     integer(i1), intent(in) :: particleType1, particleType2
     type(SimulationParameters), intent(in) :: params
 
-    real(fp) :: sigma, d
-
-    d = .5_fp * (params%d_ref(particleType1)+params%d_ref(particleType2))
+    real(fp) :: sigma, d, d1, d2, c_r, m_r
 
     if (params%collisionModel == 1) then !> hard sphere
+      d = .5_fp * (params%d_ref(particleType1)+params%d_ref(particleType2))
+      sigma = PI * d**2
+    else if (params%collisionModel == 2) then !> variable hard sphere
+      c_r = norm2(particle1(3:)-particle2(3:))
+      if (particleType1 == particleType2) then
+        m_r = .5_fp * params%m(particleType1)
+        !> d = 1/2 * (d1+d2)
+        d = params%d_ref(particleType1) &
+          *sqrt((2*k_B*params%T_ref(particleType1)/(params%m(particleType1)*c_r*c_r))**params%nu/gamma(2._fp - params%nu))
+      else
+        m_r = params%m(particleType1)*params%m(particleType2)/(params%m(particleType1) + params%m(particleType2))
+        d1 = params%d_ref(particleType1) &
+          *sqrt((2*k_B*params%T_ref(particleType1)/(params%m(particleType1)*c_r*c_r))**params%nu/gamma(2._fp - params%nu))
+        d2 = params%d_ref(particleType2) &
+          *sqrt((2*k_B*params%T_ref(particleType2)/(params%m(particleType2)*c_r*c_r))**params%nu/gamma(2._fp - params%nu))
+        d = .5_fp * (d1+d2)
+      end if 
       sigma = PI * d**2
     else
       print *, "collision_model not implemented yet: ", params%collisionModel
@@ -121,5 +136,54 @@ contains
     end if 
     
   end subroutine quicksort 
+
+  subroutine gauss_random_1d(arr)
+    !> implements the Box-Muller method to generate Gaussian distributed random numbers
+    implicit none
+    real(fp), dimension(:), pointer, intent(inout) :: arr
+
+    real(fp), dimension(:), pointer :: rnd
+    real(fp) :: tmp
+    integer(i4) :: i,n
+
+    n = size(arr)
+    if (mod(n,2) == 1) then
+      n = n+1
+    end if 
+
+    allocate(rnd(n))
+    call random_number(rnd)
+    do i = 1, n-2
+      tmp = sqrt(-2*log(rnd(i)))
+      arr(i) = tmp * cos(2*PI*rnd(i+1))
+      arr(i+1) = tmp * sin(2*PI*rnd(i+1))
+    end do 
+
+    !> handle the last entries
+    tmp = sqrt(-2*log(rnd(n-1)))
+    arr(n-1) = tmp * cos(2*pi*rnd(n))
+    if (n == size(arr)) then
+      arr(n) = tmp * sin(2*pi*rnd(n))
+    end if 
+
+    deallocate(rnd)
+    
+  end subroutine gauss_random_1d 
+
+  subroutine gauss_random_2d(arr)
+    !> calls gauss_random_1d columnwise 
+    implicit none
+    real(fp), dimension(:,:), pointer, intent(inout) :: arr
+
+    real(fp), dimension(:), pointer :: pArr
+    integer(i4) :: i
+
+    do i = 1, size(arr, 2)
+      pArr => arr(:,i)
+      call gauss_random_1d(pArr)
+    end do 
+    
+  end subroutine gauss_random_2d 
+
 
 end module m_util

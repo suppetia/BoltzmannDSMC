@@ -14,19 +14,25 @@ contains
     type(QuadTree), pointer, intent(inout) :: tree
     type(SimulationParameters), pointer, intent(in) :: simParams
 
-    integer(i4) :: i, nCollisions
+    integer(i4) :: i, nCollisions, totalCollisions
     type(QuadTreeNode), pointer :: n
     integer(i4), dimension(:), pointer :: collisionPairs
 
     call moveParticles(tree, simParams)
     call updateTreeNodes(tree, simParams)
-    !$OMP PARALLEL DO private(n, nCollisions, collisionPairs) shared(tree, simParams)
+    totalCollisions = 0
+    !$OMP PARALLEL DO private(n, nCollisions, collisionPairs) shared(tree, simParams) &
+    !$OMP reduction(+: totalCollisions)
     do i = 1, tree%leafNumber
       n => tree%leafs(i)%node
+      nullify(collisionPairs)
       call selectCollisionPairs(n, tree, simParams, collisionPairs, nCollisions)
+      ! print *, "num col:", nCollisions, ASSOCIATED(collisionPairs)
+      totalCollisions = totalCollisions + nCollisions
       call collide(n, tree, collisionPairs, nCollisions, simParams)
     end do
     !$OMP END PARALLEL DO
+    print*, "number of collisions:", totalCollisions
   end subroutine step 
 
   subroutine moveParticles(tree, params)
@@ -89,6 +95,7 @@ contains
           call append(list, tree%particles(idx+j, :), tree%particleTypes(idx+j))
           numParticles = numParticles - 1
           tree%particles(idx+j, :) = tree%particles(idx+numParticles, :)
+          tree%particleTypes(idx+j) = tree%particleTypes(idx+numParticles)
         end if 
       end do 
       tree%particleNumbers(i) = numParticles
@@ -121,6 +128,8 @@ contains
     ! particles => list%particles(:list%numParticles, :)
     call findParticleCells(tree, particles, leafIdx)
     call insertParticles(tree, particles, particleTypes, leafIdx)
+    deallocate(particles)
+    deallocate(particleTypes)
 
     ! nullify(particles)
     ! deallocate(leafIdx)
@@ -213,8 +222,8 @@ contains
     type(QuadTreeNode), pointer, intent(inout) :: node
     type(QuadTree), pointer, intent(inout) :: tree
     type(SimulationParameters), intent(inout) :: simParams
-    integer(i4), dimension(:), pointer, intent(out) :: pairs
-    integer(i4), intent(out) :: nCollisions
+    integer(i4), dimension(:), pointer, intent(inout) :: pairs
+    integer(i4), intent(inout) :: nCollisions
 
     integer(i4) :: nCurrentCollisions, numParticles
     integer(i4) :: p1, p2, i, idx
@@ -222,6 +231,7 @@ contains
     real(fp), dimension(:,:), pointer :: particles
     integer(i1), dimension(:), pointer :: particleTypes
     real(fp), dimension(5) :: tmpParticle
+    integer(i1) :: tmpParticleType
     real(fp) :: c_r, sigma
     real(fp) :: rnd
 
@@ -231,11 +241,20 @@ contains
     particleTypes => tree%particleTypes(tree%particleStartIndices(idx):tree%particleStartIndices(idx)+numParticles-1)
 
     !> number of collisions in the cell = 1/2 * N N_avg F_N (sigma_T, c_r)_max dt/V_c
-    nCollisions = .5_fp * numParticles * node%stats%particleCounter%average &
+    ! print *, "hi"
+    ! print *,.5_fp * numParticles * node%stats%particleCounter%average(1) 
+    ! print *, simParams%F_N * node%stats%maxSigmaC
+    ! print *, simParams%V_c * cellWidth(node) * cellHeight(node)
+    ! print *, .5_fp * numParticles * node%stats%particleCounter%average(1) &
+    !   * simParams%F_N * node%stats%maxSigmaC * simParams%dt &
+    !   / (simParams%V_c * cellWidth(node) * cellHeight(node))
+    nCollisions = .5_fp * numParticles * node%stats%particleCounter%average(1) &
       * simParams%F_N * node%stats%maxSigmaC * simParams%dt &
       / (simParams%V_c * cellWidth(node) * cellHeight(node))
 
-    if (nCollisions < 0) then
+    ! print *, nCollisions
+    if (nCollisions <= 0) then
+      nCollisions = 0
       return
     end if 
 
@@ -253,12 +272,14 @@ contains
       p2 = int(rnd*(numParticles-p1))+p1
 
       tmpParticle = particles(p2, :)
+      tmpParticleType = particleTypes(p2)
       particles(p2, :) = particles(p1, :)
+      particleTypes(p2) = particleTypes(p1)
       particles(p1, :) = tmpParticle
+      particleTypes(p1) = tmpParticleType
 
       do p2 = p1+1, numParticles
         c_r = norm2(abs(particles(p1, 3:)-particles(p2, 3:)))
-        !> TODO: change to actual types
         sigma = sigma_T(particles(p1, :), particleTypes(p1), particles(p2, :), particleTypes(p2), simParams)
 
         call random_number(rnd)
@@ -296,15 +317,15 @@ contains
     type(QuadTreeNode), pointer, intent(inout) :: node
     type(QuadTree), pointer, intent(inout) :: tree
     integer(i4), dimension(:), pointer, intent(inout) :: pairs
-    integer(i4), intent(in) :: numCollisions
+    integer(i4), intent(inout) :: numCollisions
     type(SimulationParameters), intent(in) :: simParams
 
     integer(i4) :: p1, p2, i, idx, numParticles
     real(fp), dimension(:,:), pointer :: particles
     integer(i1), dimension(:), pointer :: particleTypes
     real(fp), dimension(3) :: vecC_r, vecNewC_r, vecC_m
-    real(fp) :: c_r, m1, m2
-    real(fp) :: c_chi, s_chi, eps
+    real(fp) :: c_r, m1, m2, tmp
+    real(fp) :: c_chi, s_chi, chi, c_eps, s_eps, eps
     real(fp), dimension(2) :: rnd
 
     idx = node%nodeIdx
@@ -325,14 +346,21 @@ contains
       !> use (V)HS logic (isotropic deflection)
       !> generate random deflection angles
       call random_number(rnd)
-      c_chi = 2.*rnd(1)-1. !> cosine of a random elevation angle
+      chi = 2.*PI*rnd(1) !> random deflection angle
+      c_chi = cos(chi)
+      ! c_chi = 2.*rnd(1)-1. !> cosine of a random elevation angle
       s_chi = sqrt(1.-c_chi*c_chi) !> sine of that angle
       eps = 2.*PI*rnd(2) !> random azimuth angle
+      c_eps = cos(eps)
+      s_eps = sqrt(1.-c_eps*c_eps)
+
+      !> (y_r^2+w_r^2)^{1/2}
+      tmp = sqrt(vecC_r(2)*vecC_r(2)+vecC_r(3)*vecC_r(3))
 
       !> calculate the new relativ velocity components
-      vecNewC_r(1) = c_r * c_chi
-      vecNewC_r(2) = c_r * s_chi * cos(eps)
-      vecNewC_r(3) = c_r * s_chi * sin(eps)
+      vecNewC_r(1) = vecC_r(1) * c_chi + s_chi * s_eps * tmp
+      vecNewC_r(2) = vecC_r(2) * c_chi + s_chi * (c_r*vecC_r(3)*c_eps - vecC_r(1)*vecC_r(2)*s_eps) / tmp
+      vecNewC_r(2) = vecC_r(3) * c_chi - s_chi * (c_r*vecC_r(2)*c_eps + vecC_r(1)*vecC_r(3)*s_eps) / tmp
 
       !> update the velocity components after the collision
       particles(p1, 3:) = vecC_m(:) + m2/(m1+m2) * vecNewC_r(:)

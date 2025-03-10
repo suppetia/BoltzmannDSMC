@@ -1,30 +1,24 @@
 #!/bin/bash
 
 # directory where the .mod files are placed
-MODDIR ?= ../include
+MODDIR ?=../include
 # directory where the libraries are placed
-LIBDIR ?= ../lib
+LIBDIR ?=../lib
 
 
-ARCHIVE=libutil.a
+ARCHIVE=libsimulation.a
 
-#OBJECTS=types.o matrix_io.o data_structures.o util.o
-OBJECTS=types.o datastructures.o util.o matrix_io.o
-
-
-# paths to the HDF5 installation
-HDF5_LIBDIR ?="/usr/lib/x86_64-linux-gnu/hdf5/serial"
-HDF5_INCLUDEDIR ?="/usr/include/hdf5/serial"
+OBJECTS=simulation.o simulation_io.o
 
 # Fortran compiler
-FC ?= gfortran
+FC ?=gfortran
 # Fortran compiler flags
-CFLAGS += -I$(HDF5_INCLUDEDIR) -I$(LIBDIR) -J$(MODDIR)
+CFLAGS += -I$(LIBDIR) -J$(MODDIR) -fopenmp
 
 # Linker
-LD ?= gfortran
+LD ?=gfortran
 # Linker flags
-LDFLAGS ?=
+LDFLAGS ?= -fopenmp
 
 # archive utility
 AR ?= ar
@@ -37,7 +31,7 @@ $(ARCHIVE): $(OBJECTS) $(LIBDIR)
 	cp $(ARCHIVE) $(LIBDIR)
 
 %.o: %.f90 $(MODDIR)
-	$(FC) $(CFLAGS) -c $< -o $@
+	$(FC) -c $(CFLAGS) $< -o $@
 
 $(MODDIR):
 	mkdir -p $(MODDIR)

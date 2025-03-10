@@ -5,6 +5,7 @@ program test_basic_features
   use m_datastructures, only: QuadTreeParameters, SimulationParameters
   use m_quadtree_io, only: writeQuadTreeToHDF5, createTreeFromFile
   use m_simulation, only: moveParticles, step
+  use m_util, only: gauss_random_2d
 
   use omp_lib
   implicit none
@@ -18,15 +19,16 @@ program test_basic_features
   integer(i4), dimension(:), pointer :: leafIdx
 
   integer :: i,it, status
-  integer(i4) :: tStart, tStop, numParticlesPerStep, numSimulationSteps
+  integer(i4) :: tStart, tStop, numParticlesPerStep, numSimulationSteps, writeFrequency
 
   character(len=100) :: filebasename
   logical :: storeParticles
 
   ! filebasename = "data/test_18"
   filebasename = "data/wing1"
-  numParticlesPerStep = 10
-  numSimulationSteps = 2000
+  numParticlesPerStep = 100
+  writeFrequency = 10
+  numSimulationSteps = 20
   storeParticles = .false.
 
   !$OMP PARALLEL
@@ -37,35 +39,44 @@ program test_basic_features
 
   tStart = time()
 
+  allocate(particles(50,2))
+  call gauss_random_2d(particles)
+  print *, particles
+  deallocate(particles)
+
 
   !> initialize the quadtree-parameters
   allocate(params)
   params%width = 1._fp
   params%height = 1._fp
-  params%elementSplitThreshold = 30
-  params%elementMergeThreshold = 20
-  params%elementChunkSize = 10
+  params%elementSplitThreshold = 3
+  params%elementMergeThreshold = 2
+  params%elementChunkSize = 1
   params%cellHistoryLength = 30
 
   allocate(simParams)
   simParams%dt = 1e-4_fp
   simParams%numTimeSteps = numSimulationSteps
-  simParams%writeFrequency = 10
-  allocate(simParams%m(2))
+  simParams%writeFrequency = writeFrequency
+  simParams%numParticleSpecies = 2
+  allocate(simParams%m(simParams%numParticleSpecies))
   simParams%m(1) = 1e-25
   simParams%m(2) = 5e-25
-  allocate(simParams%d_ref(1))
+  allocate(simParams%d_ref(simParams%numParticleSpecies))
   simParams%d_ref(1) = 5e-10
   simParams%d_ref(2) = 5e-9
   simParams%F_N = 1e14
   simParams%collisionModel = 1
   simParams%V_c = 1._fp
 
+  !> copy this number before creating the tree so the initial cells have the correct size
+  params%numParticleSpecies = simParams%numParticleSpecies 
 
   call createTreeFromFile(tree, params, trim(filebasename)//".tree")
   print *, tree%particleStartIndices(tree%leafNumber)
   simParams%width = tree%treeParams%width
   simParams%height = tree%treeParams%height
+  print *, "num particle species:", tree%treeParams%numParticleSpecies 
   print *, tree%leafNumber
   ! simParams%V_c = simParams%width * simParams%height * 1._fp
 
@@ -145,7 +156,7 @@ program test_basic_features
   allocate(particles(numParticlesPerStep,5))
   allocate(particleTypes(numParticlesPerStep))
   particleTypes(:numParticlesPerStep/2) = 1
-  particleTypes(:numParticlesPerStep/2) = 2
+  particleTypes(numParticlesPerStep/2:) = 2
   do it = 1, simParams%numTimeSteps
     print *, it
     call random_number(particles)
@@ -164,8 +175,12 @@ program test_basic_features
     ! particles(:,4) = 0._fp
     call findParticleCells(tree, particles, leafIdx)
     ! print *, leafIdx, tree%leafNumber
-    call insertParticles(tree, particles, particleTypes, leafIdx)
-    call updateTreeNodes(tree, simParams)
+    if (it < 100) then
+      call insertParticles(tree, particles, particleTypes, leafIdx)
+      call updateTreeNodes(tree, simParams)
+    end if 
+    ! call insertParticles(tree, particles, particleTypes, leafIdx)
+    ! call updateTreeNodes(tree, simParams)
 
     ! call random_number(particles)
     ! particles(:, 1) = particles(:, 1) * tree%treeParams%width
