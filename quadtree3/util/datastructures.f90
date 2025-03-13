@@ -119,9 +119,6 @@ module m_datastructures
     type(RealAverageCounter), pointer :: n !> number density
     type(RealAverageCounter), pointer :: rho !> mass density
     type(RealAverageCounter), pointer :: cx_0, cy_0, cz_0 !> mean velocity components
-    !> mean squared relative velocity components (cX_sq = (c - c_mean)**2) 
-    type(RealAverageCounter), pointer :: cx_sq, cy_sq, cz_sq 
-    type(RealAverageCounter), pointer :: c_sq !> c_sq = cx_sq + cy_sq + cz_sq
     type(RealAverageCounter), pointer :: p !> pressure
     type(RealAverageCounter), pointer :: T !> translational temperature
   end type StatisticsCell
@@ -388,10 +385,6 @@ contains
     call initializeRealAverageCounter(stats%cx_0, numValues, historyLength)
     call initializeRealAverageCounter(stats%cy_0, numValues, historyLength)
     call initializeRealAverageCounter(stats%cz_0, numValues, historyLength)
-    call initializeRealAverageCounter(stats%cx_sq, numValues, historyLength)
-    call initializeRealAverageCounter(stats%cy_sq, numValues, historyLength)
-    call initializeRealAverageCounter(stats%cz_sq, numValues, historyLength)
-    call initializeRealAverageCounter(stats%c_sq, numValues, historyLength)
     call initializeRealAverageCounter(stats%p, numValues, historyLength)
     call initializeRealAverageCounter(stats%T, numValues, historyLength)
   end subroutine initializeStatisticsCell 
@@ -406,10 +399,6 @@ contains
     call deleteRealAverageCounter(stats%cx_0)
     call deleteRealAverageCounter(stats%cy_0)
     call deleteRealAverageCounter(stats%cz_0)
-    call deleteRealAverageCounter(stats%cx_sq)
-    call deleteRealAverageCounter(stats%cy_sq)
-    call deleteRealAverageCounter(stats%cz_sq)
-    call deleteRealAverageCounter(stats%c_sq)
     call deleteRealAverageCounter(stats%p)
     call deleteRealAverageCounter(stats%T)
   end subroutine deleteStatisticsCell 

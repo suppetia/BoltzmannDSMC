@@ -216,7 +216,7 @@ contains
     nrows = tree%treeParams%numStatisticsCellRows
     ncols = tree%treeParams%numStatisticsCellColumns
 
-    allocate(tensor(tree%treeParams%numParticleSpecies+1, 12, nrows, ncols))
+    allocate(tensor(tree%treeParams%numParticleSpecies+1, 8, nrows, ncols))
     
     do i = 1_i2, ncols
       do j = 1_i2, nrows
@@ -229,10 +229,6 @@ contains
         tensor(:,6,j,i) = stats%cz_0%average
         tensor(:,7,j,i) = stats%p%average
         tensor(:,8,j,i) = stats%T%average
-        tensor(:,9,j,i) = stats%cx_sq%average
-        tensor(:,10,j,i) = stats%cy_sq%average
-        tensor(:,11,j,i) = stats%cz_sq%average
-        tensor(:,12,j,i) = stats%c_sq%average
       end do 
     end do
 
