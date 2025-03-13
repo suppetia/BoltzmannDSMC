@@ -2,7 +2,7 @@ program run_simulation
   use m_types, only: fp, i4, i1
   use m_quadtree, only: QuadTree, deleteTree, insertParticles, findParticleCells, updateTreeNodes
   use m_datastructures, only: QuadTreeParameters, SimulationParameters, SimulationSequence
-  use m_quadtree_io, only: writeQuadTreeToHDF5, createTreeFromFile
+  use m_quadtree_io, only: writeQuadTreeToHDF5, createTreeFromFile, createTensorFromStatisticsCells
   use m_simulation, only: step
   use m_simulation_io, only: parseSimulationSequence, parseSimulationConfiguration, setupSimulation
   use m_util, only: gauss_random_2d

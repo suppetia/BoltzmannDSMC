@@ -26,11 +26,12 @@ ARFLAGS =
 # export all variables to sub-Makefiles
 export
 
-build: CFLAGS += -O3 -ftree-vectorize -fopt-info-all=optinfo.all
+#build: CFLAGS += -O3 -ftree-vectorize -fopt-info-all=optinfo.all
+build: CFLAGS += -O3 -ftree-vectorize -march=native
 build: LDFLAGS += -O3
 build: $(MAIN).out
 
-debug: CFLAGS += -Wall -g -pg -fbounds-check
+debug: CFLAGS += -Wall -g -pg -fbounds-check -fopt-info-vec
 debug: LDFLAGS += -Wall -pg -fbounds-check
 debug: $(MAIN).out
 

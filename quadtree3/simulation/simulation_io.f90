@@ -102,6 +102,10 @@ contains
     call cfg%get("MolecularModel", "numParticleSpecies", tmpInt4)
     treeParams%numParticleSpecies = tmpInt4
     simParams%numParticleSpecies = tmpInt4
+    call cfg%get("Quadtree", "numStatisticsCellRows", tmpInt4)
+    treeParams%numStatisticsCellRows = tmpInt4
+    call cfg%get("Quadtree", "numStatisticsCellColumns", tmpInt4)
+    treeParams%numStatisticsCellColumns = tmpInt4
 
     !> parameters of the MolecularModel stored in simParams
     call cfg%get("MolecularModel", "nu", simParams%nu)

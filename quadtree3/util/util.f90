@@ -185,5 +185,20 @@ contains
     
   end subroutine gauss_random_2d 
 
+  function rectContainsRect(rect1, rect2) result (containsRect)
+    !> return true if the whole area of rect2 is contained in rect1
+    !> format of rect1, rect2: (x,y,width,height)
+    implicit none
+    real(fp), dimension(4), intent(in) :: rect1, rect2
+    logical :: containsRect
+
+    if ((rect1(1) <= rect2(1)) .and. (rect1(1)+rect1(3) >= rect2(1)+rect1(3)) &
+      .and. (rect1(2) <= rect2(2)) .and. (rect1(2)+rect1(4) >= rect2(2)+rect2(4)))  then
+
+      containsRect = .true.
+    else
+      containsRect = .false.
+    end if 
+  end function rectContainsRect
 
 end module m_util

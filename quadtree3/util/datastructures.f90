@@ -48,6 +48,9 @@ module m_datastructures
     integer(i2) :: cellHistoryLength
 
     integer(i1) :: numParticleSpecies !> number of used particle species (copy from SimulationParameters, required for the cell-stats)
+
+    !> number of rows and columns for the statistics cells
+    integer(i2) :: numStatisticsCellRows, numStatisticsCellColumns
   end type
 
   type :: ParticleList
@@ -107,6 +110,21 @@ module m_datastructures
     real(fp) :: T !> translational temperature
 
   end type CellStats
+
+
+  type :: StatisticsCell
+    !> in each of the counters the values are stored in the following layout
+    !> [total value, value for species 1, value for species 2, ...]
+    type(IntegerAverageCounter), pointer :: numParticles
+    type(RealAverageCounter), pointer :: n !> number density
+    type(RealAverageCounter), pointer :: rho !> mass density
+    type(RealAverageCounter), pointer :: cx_0, cy_0, cz_0 !> mean velocity components
+    !> mean squared relative velocity components (cX_sq = (c - c_mean)**2) 
+    type(RealAverageCounter), pointer :: cx_sq, cy_sq, cz_sq 
+    type(RealAverageCounter), pointer :: c_sq !> c_sq = cx_sq + cy_sq + cz_sq
+    type(RealAverageCounter), pointer :: p !> pressure
+    type(RealAverageCounter), pointer :: T !> translational temperature
+  end type StatisticsCell
 
 
 contains
@@ -301,7 +319,7 @@ contains
 
   subroutine addRealCount(counter, val)
     implicit none
-    type(IntegerAverageCounter), pointer, intent(inout) :: counter
+    type(RealAverageCounter), pointer, intent(inout) :: counter
     real(fp), dimension(:), intent(in) :: val
 
     if (counter%currentPosition == counter%historyLength) then
@@ -354,6 +372,47 @@ contains
     deallocate(stats%speciesStatsCounter)
     deallocate(stats)
   end subroutine deleteCellStats 
+
+  subroutine initializeStatisticsCell(stats, treeParams)
+    implicit none
+    type(StatisticsCell), intent(inout) :: stats
+    type(QuadTreeParameters), pointer, intent(in) :: treeParams
+    
+    integer(i2) :: historyLength, numValues
+
+    historyLength = treeParams%cellHistoryLength
+    numValues = treeParams%numParticleSpecies + 1_i2
+    call initializeIntegerAverageCounter(stats%numParticles, numValues, historyLength)
+    call initializeRealAverageCounter(stats%n, numValues, historyLength)
+    call initializeRealAverageCounter(stats%rho, numValues, historyLength)
+    call initializeRealAverageCounter(stats%cx_0, numValues, historyLength)
+    call initializeRealAverageCounter(stats%cy_0, numValues, historyLength)
+    call initializeRealAverageCounter(stats%cz_0, numValues, historyLength)
+    call initializeRealAverageCounter(stats%cx_sq, numValues, historyLength)
+    call initializeRealAverageCounter(stats%cy_sq, numValues, historyLength)
+    call initializeRealAverageCounter(stats%cz_sq, numValues, historyLength)
+    call initializeRealAverageCounter(stats%c_sq, numValues, historyLength)
+    call initializeRealAverageCounter(stats%p, numValues, historyLength)
+    call initializeRealAverageCounter(stats%T, numValues, historyLength)
+  end subroutine initializeStatisticsCell 
+
+  subroutine deleteStatisticsCell(stats)
+    implicit none
+    type(StatisticsCell), intent(inout) :: stats
+
+    call deleteIntegerAverageCounter(stats%numParticles)
+    call deleteRealAverageCounter(stats%n)
+    call deleteRealAverageCounter(stats%rho)
+    call deleteRealAverageCounter(stats%cx_0)
+    call deleteRealAverageCounter(stats%cy_0)
+    call deleteRealAverageCounter(stats%cz_0)
+    call deleteRealAverageCounter(stats%cx_sq)
+    call deleteRealAverageCounter(stats%cy_sq)
+    call deleteRealAverageCounter(stats%cz_sq)
+    call deleteRealAverageCounter(stats%c_sq)
+    call deleteRealAverageCounter(stats%p)
+    call deleteRealAverageCounter(stats%T)
+  end subroutine deleteStatisticsCell 
 
   subroutine deleteSimulationSequence(simSeq)
     implicit none

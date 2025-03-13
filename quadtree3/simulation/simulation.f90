@@ -1,7 +1,7 @@
 module m_simulation  !
   use m_types, only: fp, i1, i4, i8
   use m_quadtree, only: QuadTreeNode, QuadTree, cellX, cellY, cellWidth, cellHeight, &
-    insertParticles, findParticleCells, updateTreeNodes
+    insertParticles, findParticleCells, updateTreeNodes, calculateAveragesInStatisticsCells
   use m_datastructures, only: SimulationParameters, ParticleList, append, initializeParticleList, deleteParticleList
   use m_util, only: PI, sigma_T
   use omp_lib, only: omp_get_num_threads, omp_get_thread_num
@@ -33,6 +33,7 @@ contains
     end do
     !$OMP END PARALLEL DO
     print*, "number of collisions:", totalCollisions
+    call calculateAveragesInStatisticsCells(tree, simParams)
   end subroutine step 
 
   subroutine moveParticles(tree, params)

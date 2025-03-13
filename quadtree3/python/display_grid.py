@@ -19,6 +19,21 @@ from quadtree import QuadTreeNode
 cmap = plt.get_cmap('inferno')
 max_brightness = 1e-30
 
+def get_stat_from_name(name):
+    # format of the name: "<alias (str)> <species number (int)>"
+    stat_names = {
+        "numParticles": 0,
+        "N": 0, # alias for numParticles
+        "n": 1,
+        "rho": 2,
+        "cx_0": 3,
+        "cy_0": 4,
+        "cz_0": 5,
+        "p": 6,
+        "T":7
+    }
+    return stat_names.get(name.split(" ")[0], "error"), int(name.split(" ")[1])
+
 
 def boltzmann_total(v, a, b):
     return a * v**2 * np.exp(-b*v**2)
@@ -37,6 +52,12 @@ def read_particle_matrix(filename, datasetID):
     if data is None:
         return np.array([[]])
     return np.array(data) # transpose since fortran matrices are stored columnwise
+
+def read_stats_matrix(filename, datasetID):
+    hf = h5py.File(filename, "r")
+    data = np.array(hf.get(f"{int(datasetID):05d}_stats"))
+    # format: cols, rows, stat_types, particle_types+overall
+    return data
 
 # def get_stream_lines(cell_matrix):
 #     stream_lines = np.empty((cell_matrix.shape[0], 4), dtype=np.float64)
@@ -158,7 +179,7 @@ def update_plot(num, fig, ax, img_freq, img_offset, filebasename, artists, displ
 
     print(num)
 
-    disp_grid, disp_particles, disp_density, disp_vel_hist, disp_streamvectors, disp_streamplot = display_params
+    disp_grid, disp_particles, disp_density, disp_vel_hist, disp_streamvectors, disp_streamplot, display_stats = display_params
 
     rect, ax_hist, num_bins = hist_params
 
@@ -169,6 +190,9 @@ def update_plot(num, fig, ax, img_freq, img_offset, filebasename, artists, displ
     particle_mat = read_particle_matrix(f"{filebasename}.h5", (num*img_freq)+img_offset)
     # print(particle_mat)
     points, (grid, colors) = get_grid_and_particles(cell_mat, particle_mat)
+
+    stats_mat = read_stats_matrix(f"{filebasename}.h5", (num*img_freq)+img_offset)
+    print(stats_mat.shape)
 
     if disp_vel_hist:
         # find points in a given rectangle
@@ -223,7 +247,7 @@ def update_plot(num, fig, ax, img_freq, img_offset, filebasename, artists, displ
         if disp_streamvectors:
             artists[3].set_UVC(u,v)
         if disp_streamplot:
-            if len(artists) == 5:
+            if artists[4] is not None:
                 artists[4].lines.remove()
                 # artists[4].arrows.remove()
                 artists[4].arrows.set_paths([])
@@ -237,11 +261,26 @@ def update_plot(num, fig, ax, img_freq, img_offset, filebasename, artists, displ
                 #     artists[4].arrows.remove()
                 # except:
                 #     ...
-
-            else:
-                artists.append(None)
             new_streamplot = ax.streamplot(x,y,u,v, broken_streamlines=True, color="red")
             artists[4] = new_streamplot
+
+    if display_stats:
+        stat_id, species_id = get_stat_from_name(stat_displayed)
+        w,h = kwargs["simulation_area"]
+        w /= stats_mat.shape[0]
+        h /= stats_mat.shape[1]
+        statistics_cells = []
+        statistics_data = []
+        cnorm = mcolors.Normalize(vmin=0, vmax=np.max(stats_mat[:,:,stat_id,species_id]))
+        print(stats_mat[:, :, stat_id, species_id])
+        for c in range(stats_mat.shape[0]):
+            for r in range(stats_mat.shape[1]):
+                statistics_cells.append(Rectangle((c*w, r*h), w,h))
+                statistics_data.append(cmap(cnorm(stats_mat[c,r,stat_id,species_id])))
+
+        artists[5].set_paths(statistics_cells)
+        artists[5].set_facecolor(statistics_data)
+        artists[5].set_edgecolor("g")
 
 
 
@@ -258,7 +297,7 @@ filebasename = "../data/vertical_line/vl2"
 
 display_grid = True
 display_particles = True
-display_density = True
+display_density = False
 display_vel_hist = False
 bin_count = 50
 
@@ -267,6 +306,9 @@ display_streamplot = True
 divs_x = 10
 divs_y = 10
 arrow_scale = 50000
+
+display_stats = True
+stat_displayed = "n 0"
 
 
 save_animation = False
@@ -311,6 +353,7 @@ pts = ax.scatter([],[], color="blue", marker=".")
 print(type(pts))
 patch = ax.add_collection(PatchCollection([], linewidth=1, edgecolor='none', facecolor='none', alpha=alpha))
 print(type(patch))
+patch2 = ax.add_collection(PatchCollection([], linewidth=1, edgecolor='none', facecolor='none', alpha=alpha))
 
 if display_vel_hist:
     ax_hist = [ax.inset_axes([.8, .7, .2, .2]), ax.inset_axes([.8, .4, .2, .2])]
@@ -338,11 +381,12 @@ print(type(stream))
 ani = FuncAnimation(fig, partial(update_plot,
                                  fig=fig, ax=ax,
                                  img_freq=img_freq, img_offset=img_offset, filebasename=filebasename,
-                                 artists=[pts, patch, contours, stream],
-                                 display_params=[display_grid, display_particles, display_density, display_vel_hist, display_stream, display_streamplot],
+                                 artists=[pts, patch, contours, stream, None, patch2],
+                                 display_params=[display_grid, display_particles, display_density, display_vel_hist, display_stream, display_streamplot, display_stats],
                                  hist_params=[rect, ax_hist, bin_count],
                                  simulation_area=(root.width, root.height),
-                                 averaging_area=(root.width/divs_x, root.height/divs_y)
+                                 averaging_area=(root.width/divs_x, root.height/divs_y),
+                                 stat_displayed=stat_displayed
                                  ),
                     frames=num_images+1, interval=100, repeat=True)
 

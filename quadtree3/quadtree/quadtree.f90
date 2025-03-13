@@ -1,8 +1,9 @@
 module m_quadtree
   use m_types, only: fp, i1, i2, i4, i8
   use m_datastructures, only: QuadTreeParameters, SimulationParameters, StructuresPointer, CellStats, &
-    addIntegerCount, initializeCellStats, deleteCellStats
-  use m_util, only: lineIntersection, sort, k_B
+    addIntegerCount, initializeCellStats, deleteCellStats, initializeStatisticsCell, deleteStatisticsCell, &
+    StatisticsCell, addRealCount
+  use m_util, only: lineIntersection, sort, k_B, rectContainsRect
 
   use omp_lib
 
@@ -89,6 +90,9 @@ module m_quadtree
 
     !> array of pointers associated with the leaf node's structures
     type(StructuresPointer), pointer, dimension(:) :: structures => null()
+
+    !> array of CellStats for averaging in fixed rectangles
+    type(StatisticsCell), pointer, dimension(:,:) :: statisticsCells => null()
 
   end type QuadTree
 
@@ -179,6 +183,8 @@ contains
     implicit none
     type(QuadTree), pointer, intent(out) :: tree
     type(QuadTreeParameters), pointer, intent(inout) :: params
+
+    integer(i2) :: i,j
     
     allocate(tree)
     tree%treeParams => params
@@ -196,6 +202,15 @@ contains
     allocate(tree%structures(1))
     tree%particleNumbers(1) = 0
     tree%particleStartIndices(1) = 1
+
+    !> initialize the statistics cell array
+    allocate(tree%statisticsCells(params%numStatisticsCellRows,params%numStatisticsCellColumns))
+    do i = 1_i2, params%numStatisticsCellRows
+      do j = 1_i2, params%numStatisticsCellColumns
+        call initializeStatisticsCell(tree%statisticsCells(i,j), params)
+      end do 
+    end do 
+
   end subroutine initializeTree 
 
 
@@ -632,17 +647,17 @@ contains
     if (associated(node%children)) then
       do i=1,4
         childNode => node%children(i)
-        if (.not.associated(node%children)) then
+        if (.not.associated(childNode%children)) then
           call push(newLeafsStack, childNode)
         end if
       end do
     end if
   end subroutine removeUnnecessaryNodesDownwards
 
-  recursive subroutine findLeafs(n, newLeafsStack)
+  recursive subroutine findLeafs(n, leafsStack)
     implicit none
     type(QuadTreeNode), pointer, intent(inout) :: n
-    type(NodeStack), intent(inout) :: newLeafsStack
+    type(NodeStack), intent(inout) :: leafsStack
 
     type(QuadTreeNode), pointer :: childNode
     integer(i1) :: i
@@ -650,10 +665,10 @@ contains
     if (associated(n%children)) then
       do i = 1,4
         childNode => n%children(i)
-        call findLeafs(childNode, newLeafsStack)
+        call findLeafs(childNode, leafsStack)
       end do
     else
-      call push(newLeafsStack, n)
+      call push(leafsStack, n)
     end if
   end subroutine findLeafs
 
@@ -754,10 +769,10 @@ contains
     !     end if
     !   end if 
     ! end do 
-    ! print *, "num leafs after node removal", tree%leafNumber
+    ! print *, "num leafs after node removal", tree%leafNumber, stack%topIndex
     ! print *, stack%topIndex
 
-    call findLeafs(tree%root, stack)
+    ! call findLeafs(tree%root, stack)
     ! print *, "num leafs after searching leafs", stack%topIndex
     ! print *, stack%topIndex - tree%leafNumber
     ! print *, stack%topIndex - size(tree%leafs)
@@ -1073,6 +1088,227 @@ contains
 
   end subroutine findParticleCells
 
+
+  !> find the node that fully contains a rectangle
+  subroutine getNodeThatFullyContainsRect(rect, tree, node)
+    implicit none
+    real(fp), dimension(4), intent(in) :: rect
+    type(QuadTree), pointer, intent(in) :: tree
+    type(QuadTreeNode), pointer, intent(inout) :: node
+
+    logical :: fitsInChild
+    integer(i4) :: i
+    real(fp), dimension(4) :: childNodeRect
+
+    node => tree%root
+    do while (associated(node%children))
+      fitsInChild = .false.
+      do i = 1, 4
+        childNodeRect = (/cellX(node%children(i)) * tree%treeParams%width, cellY(node%children(i)) * tree%treeParams%height, &
+          cellWidth(node%children(i)) * tree%treeParams%width, cellHeight(node%children(i)) * tree%treeParams%height/)
+        if (rectContainsRect(childNodeRect, rect)) then
+          node => node%children(i)
+          fitsInChild = .true.
+          exit
+        end if 
+      end do 
+      if (.not. fitsInChild) then
+        exit
+      end if 
+    end do
+  end subroutine getNodeThatFullyContainsRect
+
+  subroutine findCellsContainedInRect(rect, tree, stack)
+    implicit none
+    real(fp), dimension(4), intent(in) :: rect
+    type(QuadTree), pointer, intent(in) :: tree
+    type(NodeStack), intent(inout) :: stack
+
+    type(QuadTreeNode), pointer :: nodeFullyContainingRect
+
+    call getNodeThatFullyContainsRect(rect, tree, nodeFullyContainingRect)
+    call initializeStack(stack)
+    call findLeafs(nodeFullyContainingRect, stack)
+    
+  end subroutine findCellsContainedInRect
+
+
+  subroutine calculateAveragesInStatisticsCells(tree, simParams)
+    implicit none
+    type(QuadTree), pointer, intent(inout) :: tree
+    type(SimulationParameters), pointer, intent(in) :: simParams
+
+    type(QuadTreeNode), pointer :: n
+    type(StatisticsCell), pointer :: stats
+    type(NodeStack) :: stack,stack2
+    integer(i2) :: i,j
+    integer(i4) :: k,l,idx, num
+    real(fp) :: x,y,width,height
+    real(fp), dimension(:), allocatable :: rho,T,p,density
+    real(fp), dimension(:), allocatable :: cx,cy,cz,cx_sq,cy_sq,cz_sq,c_sq
+    logical, pointer, dimension(:) :: mask, maskType
+    integer(i4), dimension(:), allocatable :: numInRect
+
+    width = tree%treeParams%width / tree%treeParams%numStatisticsCellColumns
+    height = tree%treeParams%height / tree%treeParams%numStatisticsCellRows
+
+    !$OMP PARALLEL shared(tree, width, height) &
+    !$OMP private(x,y,n,stats,stack,stack2,j,k,l,idx,num,numInRect,mask,maskType,cx,cy,cz,rho,T,p,density,cx_sq,cy_sq,cz_sq,c_sq)
+    j = simParams%numParticleSpecies+1
+    allocate(numInRect(j))
+    allocate(cx(j),cy(j),cz(j))
+    allocate(cx_sq(j),cy_sq(j),cz_sq(j),c_sq(j))
+    allocate(rho(j),T(j),p(j),density(j))
+    !$OMP DO
+    do i = 1_i2, tree%treeParams%numStatisticsCellColumns
+      x = (i-1)*width
+      do j = 1_i2, tree%treeParams%numStatisticsCellRows
+        y = (j-1)*height
+        stats => tree%statisticsCells(j,i)
+        call findCellsContainedInRect((/x,y,width,height/), tree, stack)
+        !> copy all nodes from the first stack to the second as the mean squared relative velocity requires the mean velocity
+        call initializeStack(stack2)
+
+        numInRect = 0
+        cx = 0.0
+        cy = 0.0
+        cz = 0.0
+        do k = 1, stack%topIndex
+          call pop(stack, n)
+          call push(stack2, n)
+          idx = tree%particleStartIndices(n%nodeIdx)
+          num = tree%particleNumbers(n%nodeIdx)
+
+          if (num > 0) then
+
+            allocate(mask(num))
+            allocate(maskType(num))
+            
+            mask = tree%particles(idx:idx+num-1,1) >= x &
+              .and. tree%particles(idx:idx+num-1,1) < x+width &
+              .and. tree%particles(idx:idx+num-1,2) >= y &
+              .and. tree%particles(idx:idx+num-1,2) < y+height
+  
+            !> store in the first component the total number of particles in the statistics cell
+            ! numInRect(1) = numInRect(1) + count(mask)
+  
+            ! cx(1) = cx(1) + sum(tree%particles(idx:idx+num-1,3), mask)
+            ! cy(1) = cy(1) + sum(tree%particles(idx:idx+num-1,4), mask)
+            ! cz(1) = cz(1) + sum(tree%particles(idx:idx+num-1,5), mask)
+
+            do l = 1, tree%treeParams%numParticleSpecies
+              maskType = mask .and. tree%particleTypes(idx:idx+num-1) == l
+              numInRect(l+1) = numInRect(l+1) + count(maskType)
+              cx(l+1) = cx(l+1) + sum(tree%particles(idx:idx+num-1,3), maskType)
+              cy(l+1) = cy(l+1) + sum(tree%particles(idx:idx+num-1,4), maskType)
+              cz(l+1) = cz(l+1) + sum(tree%particles(idx:idx+num-1,5), maskType)
+            end do 
+  
+            deallocate(mask)
+            deallocate(maskType)
+            
+          end if 
+          
+        end do 
+        numInRect(1) = sum(numInRect(2:))
+        cx(1) = sum(cx(2:))
+        cy(1) = sum(cy(2:))
+        cz(1) = sum(cz(2:))
+        !> calculate the averages
+        where (numInRect /= 0)
+          cx = cx / numInRect
+          cy = cy / numInRect
+          cz = cz / numInRect
+        end where
+
+        !> number density
+        density = numInRect / (simParams%V_c * width * height) * simParams%F_N
+        !> mass density
+        rho(2:) = density(2:)*simParams%m
+        rho(1) = sum(rho(2:))
+
+        !> calculate the mean squared relative velocities
+        do k = 1, stack2%topIndex
+          call pop(stack2, n)
+          idx = tree%particleStartIndices(n%nodeIdx)
+          num = tree%particleNumbers(n%nodeIdx)
+
+          if (num > 0) then
+
+            allocate(mask(num))
+            allocate(maskType(num))
+            
+            mask = tree%particles(idx:idx+num-1,1) >= x &
+              .and. tree%particles(idx:idx+num-1,1) < x+width &
+              .and. tree%particles(idx:idx+num-1,2) >= y &
+              .and. tree%particles(idx:idx+num-1,2) < y+height
+  
+            !> store in the first component the total number of particles in the statistics cell
+            do l = 1, tree%treeParams%numParticleSpecies
+              maskType = mask .and. tree%particleTypes(idx:idx+num-1) == l
+              cx_sq(l+1) = cx(l+1) + sum((tree%particles(idx:idx+num-1,3)-cx(l+1))**2, maskType)
+              cy_sq(l+1) = cy(l+1) + sum((tree%particles(idx:idx+num-1,4)-cy(l+1))**2, maskType)
+              cz_sq(l+1) = cz(l+1) + sum((tree%particles(idx:idx+num-1,5)-cz(l+1))**2, maskType)
+            end do 
+  
+            deallocate(mask)
+            deallocate(maskType)
+            
+          end if 
+          
+        end do 
+        
+        !> mean squared relative velocity components
+        cx_sq(1) = sum(cx_sq(2:))
+        cy_sq(1) = sum(cy_sq(2:))
+        cz_sq(1) = sum(cz_sq(2:))
+
+        where (numInRect /= 0)
+          cx_sq = cx_sq / numInRect
+          cy_sq = cy_sq / numInRect
+          cz_sq = cz_sq / numInRect
+        end where
+
+        c_sq = cx_sq + cy_sq + cz_sq
+
+        !> pressure
+        p(2:) = rho(2:) / 3 * c_sq(2:)
+        p(1) = sum(p(2:))
+
+        !> translational temperature 3/2 k * T_tr = 1/2 m * \overbar{c^2}
+        T(2:) = simParams%m / k_B * c_sq(2:) / 3
+        !> TODO: check this
+        T(1) = sum(T(2:))/simParams%numParticleSpecies
+
+        call deleteStack(stack)
+        call deleteStack(stack2)
+
+        call addIntegerCount(stats%numParticles, numInRect)
+        call addRealCount(stats%n, density)
+        call addRealCount(stats%rho, rho)
+        call addRealCount(stats%cx_0, cx)
+        call addRealCount(stats%cy_0, cy)
+        call addRealCount(stats%cz_0, cz)
+        call addRealCount(stats%cx_sq, cx_sq)
+        call addRealCount(stats%cy_sq, cy_sq)
+        call addRealCount(stats%cz_sq, cz_sq)
+        call addRealCount(stats%c_sq, c_sq)
+        call addRealCount(stats%p, p)
+        call addRealCount(stats%T, T)
+
+      end do 
+    end do 
+    !$OMP END DO
+    deallocate(numInRect)
+    deallocate(cx,cy,cz)
+    deallocate(cx_sq,cy_sq,cz_sq,c_sq)
+    deallocate(rho,T,p,density)
+    !$OMP END PARALLEL
+
+  end subroutine calculateAveragesInStatisticsCells 
+
+
+
   recursive subroutine deleteSubtree(node, tree)
     implicit none
     type(QuadTreeNode), pointer :: node
@@ -1099,6 +1335,15 @@ contains
   subroutine deleteTree(tree)
     implicit none
     type(QuadTree), pointer, intent(inout) :: tree
+
+    integer(i2) :: i,j
+
+    do j = 1_i2, tree%treeParams%numStatisticsCellColumns
+      do i = 1_i2, tree%treeParams%numStatisticsCellRows
+        call deleteStatisticsCell(tree%statisticsCells(i,j))
+      end do 
+    end do 
+    deallocate(tree%statisticsCells)
 
     deallocate(tree%treeParams)
     call deleteSubtree(tree%root, tree)

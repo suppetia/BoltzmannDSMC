@@ -1,9 +1,10 @@
 module m_quadtree_io
-  use m_types, only: fp, i1, i4, i8
+  use m_types, only: fp, i1, i2, i4, i8
   use m_quadtree, only: QuadTree, QuadTreeNode, cellX, cellY, cellWidth, cellHeight, &
     NodeStack, initializeStack, deleteStack, push, pop
-  use m_matrix_io, only: writeRealMatrixToH5Dataset
-  use m_datastructures, only: QuadTreeParameters, initializeCellStats, SimulationParameters
+  use m_matrix_io, only: writeRealMatrixToH5Dataset, writeReal4TensorToH5Dataset
+  use m_datastructures, only: QuadTreeParameters, initializeCellStats, SimulationParameters, &
+    initializeStatisticsCell, deleteStatisticsCell, CellStats, StatisticsCell
   use m_util, only: k_B
   implicit none
 contains
@@ -17,6 +18,7 @@ contains
     logical, intent(in) :: writeParticles
 
     real(fp), pointer, dimension(:,:) :: matrix
+    real(fp), pointer, dimension(:,:,:,:) :: tensor
     integer(i4), pointer, dimension(:) :: particleStartPosition
     type(QuadTreeNode), pointer :: node
     integer(i4) :: i, numParticles, idx1, idx2, num
@@ -76,6 +78,14 @@ contains
     call writeRealMatrixToH5Dataset(filename, datasetName//"_tree", matrix,tree%leafNumber, 12, error)
     deallocate(matrix)
 
+    !> store the data from the statistics cells
+    call createTensorFromStatisticsCells(tree, tensor)
+    call writeReal4TensorToH5Dataset(filename, datasetName//"_stats", tensor, &
+      [tree%treeParams%numParticleSpecies+1, 12, int(tree%treeParams%numStatisticsCellRows), &
+       int(tree%treeParams%numStatisticsCellColumns)], &
+      error)
+    deallocate(tensor)
+
     if (writeParticles) then
       !> write the particle matrix to the file
       allocate(matrix(numParticles,5))
@@ -110,6 +120,7 @@ contains
     integer(i8) :: cellID
     integer(i1) :: numberOfContours, isLeaf
     real(fp) :: width, height
+    type(CellStats), pointer :: stats
 
     io = 10
     !> open the file for reading
@@ -183,8 +194,50 @@ contains
     end do 
     call deleteStack(stack)
 
+    !> initialize the statistics cell array
+    allocate(tree%statisticsCells(params%numStatisticsCellRows,params%numStatisticsCellColumns))
+    do i = 1_i2, params%numStatisticsCellRows
+      do j = 1_i2, params%numStatisticsCellColumns
+        call initializeStatisticsCell(tree%statisticsCells(i,j), params)
+      end do 
+    end do 
     
   end subroutine createTreeFromFile 
+
+
+  subroutine createTensorFromStatisticsCells(tree, tensor)
+    implicit none
+    type(QuadTree), pointer, intent(in) :: tree
+    real(fp), dimension(:,:,:,:), pointer, intent(inout) :: tensor
+
+    type(StatisticsCell), pointer :: stats
+    integer(i2) :: i,j,nrows,ncols
+
+    nrows = tree%treeParams%numStatisticsCellRows
+    ncols = tree%treeParams%numStatisticsCellColumns
+
+    allocate(tensor(tree%treeParams%numParticleSpecies+1, 12, nrows, ncols))
+    
+    do i = 1_i2, ncols
+      do j = 1_i2, nrows
+        stats => tree%statisticsCells(j,i)
+        tensor(:,1,j,i) = real(stats%numParticles%average) 
+        tensor(:,2,j,i) = stats%n%average
+        tensor(:,3,j,i) = stats%rho%average
+        tensor(:,4,j,i) = stats%cx_0%average
+        tensor(:,5,j,i) = stats%cy_0%average
+        tensor(:,6,j,i) = stats%cz_0%average
+        tensor(:,7,j,i) = stats%p%average
+        tensor(:,8,j,i) = stats%T%average
+        tensor(:,9,j,i) = stats%cx_sq%average
+        tensor(:,10,j,i) = stats%cy_sq%average
+        tensor(:,11,j,i) = stats%cz_sq%average
+        tensor(:,12,j,i) = stats%c_sq%average
+      end do 
+    end do
+
+    
+  end subroutine createTensorFromStatisticsCells 
 
 
 end module m_quadtree_io 
