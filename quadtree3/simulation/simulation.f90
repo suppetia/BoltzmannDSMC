@@ -249,7 +249,7 @@ contains
     ! print *, .5_fp * numParticles * node%stats%particleCounter%average(1) &
     !   * simParams%F_N * node%stats%maxSigmaC * simParams%dt &
     !   / (simParams%V_c * cellWidth(node) * cellHeight(node))
-    nCollisions = .5_fp * numParticles * node%stats%particleCounter%average(1) &
+    nCollisions = .5_fp * numParticles * (node%stats%particleCounter%average(1)-1) &
       * simParams%F_N * node%stats%maxSigmaC * simParams%dt &
       / (simParams%V_c * cellWidth(node) * cellHeight(node))
 

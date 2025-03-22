@@ -81,7 +81,7 @@ contains
     !> store the data from the statistics cells
     call createTensorFromStatisticsCells(tree, tensor)
     call writeReal4TensorToH5Dataset(filename, datasetName//"_stats", tensor, &
-      [tree%treeParams%numParticleSpecies+1, 12, int(tree%treeParams%numStatisticsCellRows), &
+      [tree%treeParams%numParticleSpecies+1, 8, int(tree%treeParams%numStatisticsCellRows), &
        int(tree%treeParams%numStatisticsCellColumns)], &
       error)
     deallocate(tensor)

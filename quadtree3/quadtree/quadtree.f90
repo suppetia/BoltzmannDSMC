@@ -1133,6 +1133,18 @@ contains
   end subroutine findCellsContainedInRect
 
 
+  ! subroutine calculateAveragesInStatisticsCells(tree, simParams)
+  !   implicit none
+  !   type(QuadTree), pointer, intent(inout) :: tree
+  !   type(SimulationParameters), pointer, intent(in) :: simParams
+  !
+  !   type(StatisticsCell), pointer :: stats
+  !   integer(i2) :: i,j
+  !   logical, dimension(:), pointer :: maskX, maskY
+  !   real(fp) :: x,y,width,height
+  !
+  ! end subroutine calculateAveragesInStatisticsCells 
+
   subroutine calculateAveragesInStatisticsCells(tree, simParams)
     implicit none
     type(QuadTree), pointer, intent(inout) :: tree
@@ -1171,6 +1183,9 @@ contains
         cx = 0.0
         cy = 0.0
         cz = 0.0
+        cx_sq = 0.0
+        cy_sq = 0.0
+        cz_sq = 0.0
         do k = 1, stack%topIndex
           call pop(stack, n)
           idx = tree%particleStartIndices(n%nodeIdx)
@@ -1210,21 +1225,16 @@ contains
           end if 
           
         end do 
-        !> calculate the averages
-        where (numInRect /= 0)
-          cx = cx / numInRect
-          cy = cy / numInRect
-          cz = cz / numInRect
-        end where
 
         numInRect(1) = sum(numInRect(2:))
         if (numInRect(1) > 0) then
           !> mean velocity components
           !> cX_0 = (sum_{species p} m_p * mean velocity of species p)/(sum_{species p} numParticles of species p)
-          cx(1) = sum(simParams%m*cx(2:))/numInRect(1)
-          cy(1) = sum(simParams%m*cy(2:))/numInRect(1)
-          cz(1) = sum(simParams%m*cz(2:))/numInRect(1)
+          cx(1) = sum(simParams%m*cx(2:))/sum(simParams%m*numInRect(2:))
+          cy(1) = sum(simParams%m*cy(2:))/sum(simParams%m*numInRect(2:))
+          cz(1) = sum(simParams%m*cz(2:))/sum(simParams%m*numInRect(2:))
         end if 
+
 
         !> number density
         density = numInRect / (simParams%V_c * width * height) * simParams%F_N
@@ -1233,14 +1243,31 @@ contains
         rho(1) = sum(rho(2:))
 
         !> translational temperature for each species (see eq.4.40 Bird2012)
-        T(2:) = simParams%m * (cx_sq(2:)+cy_sq(2:)+cz_sq(2:) - cx(1)**2-cy(1)**2-cz(1)**2)/(3*k_B)
+        where (numInRect(2:) > 0)
+          T(2:) = simParams%m * ((cx_sq(2:)+cy_sq(2:)+cz_sq(2:)) / numInRect(2:) - cx(1)**2-cy(1)**2-cz(1)**2)/(3*k_B)
+        elsewhere
+          T(2:) = 0.0
+        end where
         !> total translational temperature (see eq.4.39 Bird2012)
-        T(1) = sum(simParams%m * (cx_sq(2:)+cy_sq(2:)+cz_sq(2:)) &
-          - sum(simParams%m * numInRect(2:))*(cx(1)**2-cy(1)**2-cz(1)**2)&
-          )/(3*k_B*numInRect(1))
+        if (numInRect(1) > 0) then
+          T(1) = (sum(simParams%m * (cx_sq(2:)+cy_sq(2:)+cz_sq(2:))) &
+            - sum(simParams%m * numInRect(2:))*(cx(1)**2+cy(1)**2+cz(1)**2)&
+            )/(3*k_B*numInRect(1))
+        else
+          T(1) = 0.0
+        end if
 
         !> pressure
         p = density * k_B * T
+        !> calculate the averages velocities for each particle species
+        where (numInRect(2:) /= 0)
+          cx(2:) = cx(2:) / numInRect(2:)
+          cy(2:) = cy(2:) / numInRect(2:)
+          cz(2:) = cz(2:) / numInRect(2:)
+          cx_sq(2:) = cx_sq(2:) / numInRect(2:)
+          cy_sq(2:) = cy_sq(2:) / numInRect(2:)
+          cz_sq(2:) = cz_sq(2:) / numInRect(2:)
+        end where
 
         call deleteStack(stack)
 
