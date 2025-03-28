@@ -300,96 +300,102 @@ contains
 
     !> split structures if present
     if (associated(node%structures)) then
-      idx(:) = 1
-      allocate(tmpStructures(4, 6, size(node%structures,2)))
-      do i = 1, size(node%structures,2)
-    
-        !> store the orientation of the structure line to find the corresponding subcells later
-        if (node%structures(1, i) - node%structures(3, i) < 0._fp) then
-          structureDirectionX = 1_i1
-        else
-          structureDirectionX = -1_i1
-        end if
-        if (node%structures(2, i) - node%structures(4, i) < 0._fp) then
-          structureDirectionY = 1_i1
-        else
-          structureDirectionY = -1_i1
-        end if
-    
-        verticalIntersection = lineIntersection([x+newWidth, y, x+newWidth, y+newHeight*2], node%structures(:4,i))
-        horizontalIntersection = lineIntersection([x, y+newHeight, x+newWidth*2, y+newHeight], node%structures(:4,i))
+      ! idx(:) = 1
+      ! allocate(tmpStructures(4, 6, size(node%structures,2)))
+      ! do i = 1, size(node%structures,2)
+      !   
+      !   !> store the orientation of the structure line to find the corresponding subcells later
+      !   if (node%structures(1, i) - node%structures(3, i) < 0._fp) then
+      !     structureDirectionX = 1_i1
+      !   else
+      !     structureDirectionX = -1_i1
+      !   end if
+      !   if (node%structures(2, i) - node%structures(4, i) < 0._fp) then
+      !     structureDirectionY = 1_i1
+      !   else
+      !     structureDirectionY = -1_i1
+      !   end if
+      !   
+      !   verticalIntersection = lineIntersection([x+newWidth, y, x+newWidth, y+newHeight*2], node%structures(:4,i))
+      !   horizontalIntersection = lineIntersection([x, y+newHeight, x+newWidth*2, y+newHeight], node%structures(:4,i))
+      !
+      !   !> determine the subcells which the line crosses
+      !   if (node%structures(1,i) >= x + newWidth) then
+      !     j = 2_i1
+      !   else
+      !     j = 1_i1
+      !   end if
+      !   if (node%structures(2,i) >= y + newHeight) then
+      !     j = j + 2_i1
+      !   end if
+      !   tmpStructures(j, 1:2, idx(j)) = node%structures(1:2,i)
+      !   
+      !   if (any(verticalIntersection /= -1._fp)) then
+      !     if (any(horizontalIntersection /= -1._fp)) then
+      !       !> TODO: handle the case where the structure is exactly aligning with the middle
+      !       if ((verticalIntersection(1)-horizontalIntersection(1))*structureDirectionX < 0) then
+      !         !> if the vertical intersection happens first
+      !         tmpStructures(j,3:4,idx(j)) = verticalIntersection
+      !         tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
+      !         idx(j) = idx(j) + 1
+      !         j = j + structureDirectionX
+      !         tmpStructures(j,1:2,idx(j)) = verticalIntersection
+      !   
+      !         tmpStructures(j,3:4,idx(j)) = horizontalIntersection
+      !         tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
+      !         idx(j) = idx(j) + 1
+      !         j = j + 2_i1 * structureDirectionY
+      !         tmpStructures(j,1:2,idx(j)) = horizontalIntersection
+      !   
+      !       else
+      !         !> if the horizontalIntersection happens first
+      !         tmpStructures(j,3:4,idx(j)) = horizontalIntersection
+      !         tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
+      !         idx(j) = idx(j) + 1
+      !         j = j + 2_i1 * structureDirectionY
+      !         tmpStructures(j,1:2,idx(j)) = horizontalIntersection
+      !      
+      !         tmpStructures(j,3:4,idx(j)) = verticalIntersection
+      !         tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
+      !         idx(j) = idx(j) + 1
+      !         j = j + structureDirectionX
+      !         tmpStructures(j,1:2,idx(j)) = verticalIntersection
+      !       end if
+      !     else
+      !       !> only the verticalIntersection happens
+      !       tmpStructures(j,3:4,idx(j)) = verticalIntersection
+      !       tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
+      !       idx(j) = idx(j) + 1
+      !       j = j + structureDirectionX
+      !       tmpStructures(j,1:2,idx(j)) = verticalIntersection
+      !     end if
+      !   elseif (any(horizontalIntersection /= -1._fp)) then
+      !     !> only the horizontalIntersection happens
+      !     tmpStructures(j,3:4,idx(j)) = horizontalIntersection
+      !     tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
+      !     idx(j) = idx(j) + 1
+      !     j = j + 2_i1 * structureDirectionY
+      !     tmpStructures(j,1:2,idx(j)) = horizontalIntersection
+      !   end if
+      !   tmpStructures(j,3:4,idx(j)) = node%structures(3:4,i)
+      !   tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
+      !   idx(j) = idx(j) + 1
+      !   
+      ! end do
+      !   
+      ! do j = 1_i1,4_i1
+      !   if (idx(j)-1 > 0) then
+      !     allocate(node%children(j)%structures(6, idx(j)-1))
+      !     node%children(j)%structures(:, :idx(j)-1) = tmpStructures(j, :, :idx(j)-1)
+      !   end if
+      ! end do
 
-        !> determine the subcells which the line crosses
-        if (node%structures(1,i) >= x + newWidth) then
-          j = 2_i1
-        else
-          j = 1_i1
-        end if
-        if (node%structures(2,i) >= y + newHeight) then
-          j = j + 2_i1
-        end if
-        tmpStructures(j, 1:2, idx(j)) = node%structures(1:2,i)
-    
-        if (any(verticalIntersection /= -1._fp)) then
-          if (any(horizontalIntersection /= -1._fp)) then
-            !> TODO: handle the case where the structure is exactly aligning with the middle
-            if ((verticalIntersection(1)-horizontalIntersection(1))*structureDirectionX < 0) then
-              !> if the vertical intersection happens first
-              tmpStructures(j,3:4,idx(j)) = verticalIntersection
-              tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
-              idx(j) = idx(j) + 1
-              j = j + structureDirectionX
-              tmpStructures(j,1:2,idx(j)) = verticalIntersection
-    
-              tmpStructures(j,3:4,idx(j)) = horizontalIntersection
-              tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
-              idx(j) = idx(j) + 1
-              j = j + 2_i1 * structureDirectionY
-              tmpStructures(j,1:2,idx(j)) = horizontalIntersection
-    
-            else
-              !> if the horizontalIntersection happens first
-              tmpStructures(j,3:4,idx(j)) = horizontalIntersection
-              tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
-              idx(j) = idx(j) + 1
-              j = j + 2_i1 * structureDirectionY
-              tmpStructures(j,1:2,idx(j)) = horizontalIntersection
-             
-              tmpStructures(j,3:4,idx(j)) = verticalIntersection
-              tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
-              idx(j) = idx(j) + 1
-              j = j + structureDirectionX
-              tmpStructures(j,1:2,idx(j)) = verticalIntersection
-            end if
-          else
-            !> only the verticalIntersection happens
-            tmpStructures(j,3:4,idx(j)) = verticalIntersection
-            tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
-            idx(j) = idx(j) + 1
-            j = j + structureDirectionX
-            tmpStructures(j,1:2,idx(j)) = verticalIntersection
-          end if
-        elseif (any(horizontalIntersection /= -1._fp)) then
-          !> only the horizontalIntersection happens
-          tmpStructures(j,3:4,idx(j)) = horizontalIntersection
-          tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
-          idx(j) = idx(j) + 1
-          j = j + 2_i1 * structureDirectionY
-          tmpStructures(j,1:2,idx(j)) = horizontalIntersection
-        end if
-        tmpStructures(j,3:4,idx(j)) = node%structures(3:4,i)
-        tmpStructures(j,5:6,idx(j)) = node%structures(5:6,i)
-        idx(j) = idx(j) + 1
-    
-      end do
-    
       do j = 1_i1,4_i1
-        if (idx(j)-1 > 0) then
-          allocate(node%children(j)%structures(6, idx(j)-1))
-          node%children(j)%structures(:, :idx(j)-1) = tmpStructures(j, :, :idx(j)-1)
-        end if
+        allocate(node%children(j)%structures(6, size(node%structures,2)))
+        node%children(j)%structures = node%structures
       end do
     end if
+
 
     !> handle the particles
     if (numParticles == 0) then
@@ -731,7 +737,7 @@ contains
     type(NodeStack) :: stack
     type(QuadTreeNode), pointer :: n
 
-    integer(i4) :: i, idx, num
+    integer(i4) :: i, idx, idx2, num
     integer(i2) :: j
 
     type(QuadTreeNodePointer), pointer, dimension(:) :: tmpLeafs
@@ -857,17 +863,24 @@ contains
     
     !> TODO: can be parallelized
     !$OMP PARALLEL DO &
-    !$OMP private(idx, num, n, density, mass, rho, c0_x, c0_y, c0_z, cx_sq, cy_sq, cz_sq, c_sq, p, T, j) &
-    !$OMP shared(tree, tmpParticles,simParams)
+    !$OMP private(idx,idx2,num,n,density,mass,rho,c0_x,c0_y,c0_z,cx_sq,cy_sq,cz_sq,c_sq,p,T,j) &
+    !$OMP shared(tree,tmpParticles,simParams)
     do i = 1, tree%leafNumber
       idx = tree%particleStartIndices(i)
+      if (i<tree%leafNumber) then
+        idx2 = tree%particleStartIndices(i+1)
+      else
+        idx2 = size(tree%particleTypes)+1
+      end if 
       num = tree%particleNumbers(i)
       n => tree%leafs(i)%node
 
 
       if (n%tmpParticleCount < 0) then
         tree%particles(idx:idx+num-1, :) = tmpParticles(n%tmpParticleIndex:n%tmpParticleIndex+num-1, :)
+        tree%particles(idx+num:idx2-1,:) = -1
         tree%particleTypes(idx:idx+num-1) = tmpParticleTypes(n%tmpParticleIndex:n%tmpParticleIndex+num-1)
+        tree%particleTypes(idx+num:idx2-1) = -1
         n%tmpParticleIndex = -1
         n%tmpParticleCount = -1
       else
@@ -875,6 +888,8 @@ contains
         if (associated(n%tmpParticles)) then
           tree%particles(idx:idx+num-1, :) = n%tmpParticles
           tree%particleTypes(idx:idx+num-1) = n%tmpParticleTypes
+          tree%particles(idx+num:idx2-1,:) = -1
+          tree%particleTypes(idx+num:idx2-1) = -1
           deallocate(n%tmpParticleTypes)
           deallocate(n%tmpParticles)
           n%tmpParticleCount = -1
@@ -882,30 +897,32 @@ contains
         ! deallocate(n%tmpParticles)
         ! n%tmpParticleCount = -1
       end if
+
+      ! print *, i, num, tree%particles(idx:idx2-1, 1)
       !> update the cell stats
       ! call addParticleCount(n%stats%particleCounter, num)
       call addIntegerCount(n%stats%particleCounter, [num])
 
-      !> TODO: STORE THE STATS FOR EACH PARTICLE TYPE ?
-      !> calculate the node stats
-      density = num / (simParams%V_c * cellWidth(n) * cellHeight(n)) * simParams%F_N
-      !> TODO: update using the particle types
-      rho = simParams%m(1) * density
-      
-      !> calculate the mean velocity components
-      c0_x = sum(tree%particles(idx:idx+num-1, 3)) / num
-      c0_y = sum(tree%particles(idx:idx+num-1, 4)) / num
-      c0_z = sum(tree%particles(idx:idx+num-1, 5)) / num
-      !> calculate the mean relative velocities
-      cx_sq = sum((tree%particles(idx:idx+num-1, 3)-c0_x) ** 2)/num
-      cy_sq = sum((tree%particles(idx:idx+num-1, 4)-c0_y) ** 2)/num
-      cz_sq = sum((tree%particles(idx:idx+num-1, 5)-c0_z) ** 2)/num
-      
-      c_sq = cx_sq + cy_sq + cz_sq
-      p = rho / 3 * c_sq
-      !> translational temperature 3/2 k * T_tr = 1/2 m * \overbar{c^2}
-      T = simParams%m(1) / k_B * c_sq / 3 
-
+      ! !> TODO: STORE THE STATS FOR EACH PARTICLE TYPE ?
+      ! !> calculate the node stats
+      ! density = num / (simParams%V_c * cellWidth(n) * cellHeight(n)) * simParams%F_N
+      ! !> TODO: update using the particle types
+      ! rho = simParams%m(1) * density
+      !
+      ! !> calculate the mean velocity components
+      ! c0_x = sum(tree%particles(idx:idx+num-1, 3)) / num
+      ! c0_y = sum(tree%particles(idx:idx+num-1, 4)) / num
+      ! c0_z = sum(tree%particles(idx:idx+num-1, 5)) / num
+      ! !> calculate the mean relative velocities
+      ! cx_sq = sum((tree%particles(idx:idx+num-1, 3)-c0_x) ** 2)/num
+      ! cy_sq = sum((tree%particles(idx:idx+num-1, 4)-c0_y) ** 2)/num
+      ! cz_sq = sum((tree%particles(idx:idx+num-1, 5)-c0_z) ** 2)/num
+      !
+      ! c_sq = cx_sq + cy_sq + cz_sq
+      ! p = rho / 3 * c_sq
+      ! !> translational temperature 3/2 k * T_tr = 1/2 m * \overbar{c^2}
+      ! T = simParams%m(1) / k_B * c_sq / 3 
+      !
       ! n%stats%n = num / (simParams%V_c * cellWidth(n) * cellHeight(n)) * simParams%F_N
       ! !> TODO: update using the particle types
       ! n%stats%rho = simParams%m(1) * n%stats%n
@@ -994,7 +1011,7 @@ contains
       node => tree%leafs(nodeIdx)%node
       currentNumParticles = tree%particleNumbers(nodeIdx)
       if (nodeIdx == size(tree%leafs)) then
-        particleStorage = size(tree%particles, 2)+1 - tree%particleStartIndices(nodeIdx)
+        particleStorage = size(tree%particles, 1)+1 - tree%particleStartIndices(nodeIdx)
       else
         particleStorage = tree%particleStartIndices(nodeIdx+1) - tree%particleStartIndices(nodeIdx)
       end if 
@@ -1153,77 +1170,73 @@ contains
     type(QuadTreeNode), pointer :: n
     type(StatisticsCell), pointer :: stats
     type(NodeStack) :: stack
+    integer(i1) :: m
     integer(i2) :: i,j
     integer(i4) :: k,l,idx, num
     real(fp) :: x,y,width,height
     real(fp), dimension(:), allocatable :: rho,T,p,density
     real(fp), dimension(:), allocatable :: cx,cy,cz,cx_sq,cy_sq,cz_sq
-    logical, pointer, dimension(:) :: mask, maskType
+    ! logical, pointer, dimension(:) :: mask, maskType
     integer(i4), dimension(:), allocatable :: numInRect
+
+    integer(i2), dimension(:,:), allocatable :: statCellID
+    logical, pointer, dimension(:) :: maskLoc, mask
+    logical, pointer, dimension(:,:) :: maskType
 
     width = tree%treeParams%width / tree%treeParams%numStatisticsCellColumns
     height = tree%treeParams%height / tree%treeParams%numStatisticsCellRows
 
-    !$OMP PARALLEL shared(tree, width, height) &
-    !$OMP private(x,y,n,stats,stack,j,k,l,idx,num,numInRect,mask,maskType,cx,cy,cz,cx_sq,cy_sq,cz_sq,rho,T,p,density)
+    allocate(statCellID(size(tree%particleTypes),2))
+    allocate(maskType(size(tree%particleTypes), simParams%numParticleSpecies))
+    statCellID = 0
+
+    !$OMP PARALLEL shared(tree, maskType, statCellID,width,height) &
+    !$OMP private(x,y,stats,i,j,l,m,numInRect,mask,maskLoc,cx,cy,cz,cx_sq,cy_sq,cz_sq,rho,T,p,density)
+    !$OMP sections
+    !$OMP section
+    do i = 1_i2, tree%treeParams%numStatisticsCellColumns
+      x = (i-1)*width
+      where (tree%particles(:, 1) >= x .and. tree%particles(:, 1) < x+width)
+        statCellID(:, 1) = i
+      end where
+    end do 
+    !$OMP section
+    do i = 1_i2, tree%treeParams%numStatisticsCellRows
+      y = (i-1)*height
+      where (tree%particles(:, 2) >= y .and. tree%particles(:, 2) < y+height)
+        statCellID(:, 2) = i
+      end where
+    end do 
+    !$OMP section
+    do m = 1_i1, simParams%numParticleSpecies
+      maskType(:, m) = tree%particleTypes == m
+    end do 
+    !$OMP end sections
+
     j = simParams%numParticleSpecies+1
     allocate(numInRect(j))
     allocate(cx(j),cy(j),cz(j))
     allocate(cx_sq(j),cy_sq(j),cz_sq(j))
     allocate(rho(j),T(j),p(j),density(j))
+    allocate(maskLoc(size(statCellID, 1)))
+    allocate(mask(size(statCellID, 1)))
     !$OMP DO
     do i = 1_i2, tree%treeParams%numStatisticsCellColumns
-      x = (i-1)*width
       do j = 1_i2, tree%treeParams%numStatisticsCellRows
-        y = (j-1)*height
         stats => tree%statisticsCells(j,i)
-        call findCellsContainedInRect((/x,y,width,height/), tree, stack)
 
         numInRect = 0
-        cx = 0.0
-        cy = 0.0
-        cz = 0.0
-        cx_sq = 0.0
-        cy_sq = 0.0
-        cz_sq = 0.0
-        do k = 1, stack%topIndex
-          call pop(stack, n)
-          idx = tree%particleStartIndices(n%nodeIdx)
-          num = tree%particleNumbers(n%nodeIdx)
+        maskLoc = statCellID(:, 1) == i .and. statCellID(:, 2) == j
 
-          if (num > 0) then
-
-            allocate(mask(num))
-            allocate(maskType(num))
-            
-            mask = tree%particles(idx:idx+num-1,1) >= x &
-              .and. tree%particles(idx:idx+num-1,1) < x+width &
-              .and. tree%particles(idx:idx+num-1,2) >= y &
-              .and. tree%particles(idx:idx+num-1,2) < y+height
-  
-            !> store in the first component the total number of particles in the statistics cell
-            ! numInRect(1) = numInRect(1) + count(mask)
-  
-            ! cx(1) = cx(1) + sum(tree%particles(idx:idx+num-1,3), mask)
-            ! cy(1) = cy(1) + sum(tree%particles(idx:idx+num-1,4), mask)
-            ! cz(1) = cz(1) + sum(tree%particles(idx:idx+num-1,5), mask)
-
-            do l = 1, tree%treeParams%numParticleSpecies
-              maskType = mask .and. tree%particleTypes(idx:idx+num-1) == l
-              numInRect(l+1) = numInRect(l+1) + count(maskType)
-              cx(l+1) = cx(l+1) + sum(tree%particles(idx:idx+num-1,3), maskType)
-              cy(l+1) = cy(l+1) + sum(tree%particles(idx:idx+num-1,4), maskType)
-              cz(l+1) = cz(l+1) + sum(tree%particles(idx:idx+num-1,5), maskType)
-              cx_sq(l+1) = cx_sq(l+1) + sum(tree%particles(idx:idx+num-1,3)**2, maskType)
-              cy_sq(l+1) = cy_sq(l+1) + sum(tree%particles(idx:idx+num-1,4)**2, maskType)
-              cz_sq(l+1) = cz_sq(l+1) + sum(tree%particles(idx:idx+num-1,5)**2, maskType)
-            end do 
-  
-            deallocate(mask)
-            deallocate(maskType)
-            
-          end if 
-          
+        do l = 1, tree%treeParams%numParticleSpecies
+          mask = maskLoc .and. maskType(:, l)
+          numInRect(l+1) = count(mask)
+          cx(l+1) = sum(tree%particles(:,3), mask)
+          cy(l+1) = sum(tree%particles(:,4), mask)
+          cz(l+1) = sum(tree%particles(:,5), mask)
+          cx_sq(l+1) = sum(tree%particles(:,3)**2, mask)
+          cy_sq(l+1) = sum(tree%particles(:,4)**2, mask)
+          cz_sq(l+1) = sum(tree%particles(:,5)**2, mask)
         end do 
 
         numInRect(1) = sum(numInRect(2:))
@@ -1234,7 +1247,6 @@ contains
           cy(1) = sum(simParams%m*cy(2:))/sum(simParams%m*numInRect(2:))
           cz(1) = sum(simParams%m*cz(2:))/sum(simParams%m*numInRect(2:))
         end if 
-
 
         !> number density
         density = numInRect / (simParams%V_c * width * height) * simParams%F_N
@@ -1288,6 +1300,135 @@ contains
     deallocate(cx_sq,cy_sq,cz_sq)
     deallocate(rho,T,p,density)
     !$OMP END PARALLEL
+
+    deallocate(maskType, statCellID)
+
+
+    !
+    ! !$OMP PARALLEL shared(tree, width, height) &
+    ! !$OMP private(x,y,n,stats,stack,j,k,l,idx,num,numInRect,mask,maskType,cx,cy,cz,cx_sq,cy_sq,cz_sq,rho,T,p,density)
+    ! j = simParams%numParticleSpecies+1
+    ! allocate(numInRect(j))
+    ! allocate(cx(j),cy(j),cz(j))
+    ! allocate(cx_sq(j),cy_sq(j),cz_sq(j))
+    ! allocate(rho(j),T(j),p(j),density(j))
+    ! !$OMP DO
+    ! do i = 1_i2, tree%treeParams%numStatisticsCellColumns
+    !   x = (i-1)*width
+    !   do j = 1_i2, tree%treeParams%numStatisticsCellRows
+    !     y = (j-1)*height
+    !     stats => tree%statisticsCells(j,i)
+    !     call findCellsContainedInRect((/x,y,width,height/), tree, stack)
+    !
+    !     numInRect = 0
+    !     cx = 0.0
+    !     cy = 0.0
+    !     cz = 0.0
+    !     cx_sq = 0.0
+    !     cy_sq = 0.0
+    !     cz_sq = 0.0
+    !     do k = 1, stack%topIndex
+    !       call pop(stack, n)
+    !       idx = tree%particleStartIndices(n%nodeIdx)
+    !       num = tree%particleNumbers(n%nodeIdx)
+    !
+    !       if (num > 0) then
+    !
+    !         allocate(mask(num))
+    !         allocate(maskType(num))
+    !        
+    !         mask = tree%particles(idx:idx+num-1,1) >= x &
+    !           .and. tree%particles(idx:idx+num-1,1) < x+width &
+    !           .and. tree%particles(idx:idx+num-1,2) >= y &
+    !           .and. tree%particles(idx:idx+num-1,2) < y+height
+    !  
+    !         !> store in the first component the total number of particles in the statistics cell
+    !         ! numInRect(1) = numInRect(1) + count(mask)
+    !  
+    !         ! cx(1) = cx(1) + sum(tree%particles(idx:idx+num-1,3), mask)
+    !         ! cy(1) = cy(1) + sum(tree%particles(idx:idx+num-1,4), mask)
+    !         ! cz(1) = cz(1) + sum(tree%particles(idx:idx+num-1,5), mask)
+    !
+    !         do l = 1, tree%treeParams%numParticleSpecies
+    !           maskType = mask .and. tree%particleTypes(idx:idx+num-1) == l
+    !           numInRect(l+1) = numInRect(l+1) + count(maskType)
+    !           cx(l+1) = cx(l+1) + sum(tree%particles(idx:idx+num-1,3), maskType)
+    !           cy(l+1) = cy(l+1) + sum(tree%particles(idx:idx+num-1,4), maskType)
+    !           cz(l+1) = cz(l+1) + sum(tree%particles(idx:idx+num-1,5), maskType)
+    !           cx_sq(l+1) = cx_sq(l+1) + sum(tree%particles(idx:idx+num-1,3)**2, maskType)
+    !           cy_sq(l+1) = cy_sq(l+1) + sum(tree%particles(idx:idx+num-1,4)**2, maskType)
+    !           cz_sq(l+1) = cz_sq(l+1) + sum(tree%particles(idx:idx+num-1,5)**2, maskType)
+    !         end do 
+    !  
+    !         deallocate(mask)
+    !         deallocate(maskType)
+    !        
+    !       end if 
+    !      
+    !     end do 
+    !
+    !     numInRect(1) = sum(numInRect(2:))
+    !     if (numInRect(1) > 0) then
+    !       !> mean velocity components
+    !       !> cX_0 = (sum_{species p} m_p * mean velocity of species p)/(sum_{species p} numParticles of species p)
+    !       cx(1) = sum(simParams%m*cx(2:))/sum(simParams%m*numInRect(2:))
+    !       cy(1) = sum(simParams%m*cy(2:))/sum(simParams%m*numInRect(2:))
+    !       cz(1) = sum(simParams%m*cz(2:))/sum(simParams%m*numInRect(2:))
+    !     end if 
+    !
+    !
+    !     !> number density
+    !     density = numInRect / (simParams%V_c * width * height) * simParams%F_N
+    !     !> mass density
+    !     rho(2:) = density(2:)*simParams%m
+    !     rho(1) = sum(rho(2:))
+    !
+    !     !> translational temperature for each species (see eq.4.40 Bird2012)
+    !     where (numInRect(2:) > 0)
+    !       T(2:) = simParams%m * ((cx_sq(2:)+cy_sq(2:)+cz_sq(2:)) / numInRect(2:) - cx(1)**2-cy(1)**2-cz(1)**2)/(3*k_B)
+    !     elsewhere
+    !       T(2:) = 0.0
+    !     end where
+    !     !> total translational temperature (see eq.4.39 Bird2012)
+    !     if (numInRect(1) > 0) then
+    !       T(1) = (sum(simParams%m * (cx_sq(2:)+cy_sq(2:)+cz_sq(2:))) &
+    !         - sum(simParams%m * numInRect(2:))*(cx(1)**2+cy(1)**2+cz(1)**2)&
+    !         )/(3*k_B*numInRect(1))
+    !     else
+    !       T(1) = 0.0
+    !     end if
+    !
+    !     !> pressure
+    !     p = density * k_B * T
+    !     !> calculate the averages velocities for each particle species
+    !     where (numInRect(2:) /= 0)
+    !       cx(2:) = cx(2:) / numInRect(2:)
+    !       cy(2:) = cy(2:) / numInRect(2:)
+    !       cz(2:) = cz(2:) / numInRect(2:)
+    !       cx_sq(2:) = cx_sq(2:) / numInRect(2:)
+    !       cy_sq(2:) = cy_sq(2:) / numInRect(2:)
+    !       cz_sq(2:) = cz_sq(2:) / numInRect(2:)
+    !     end where
+    !
+    !     call deleteStack(stack)
+    !
+    !     call addIntegerCount(stats%numParticles, numInRect)
+    !     call addRealCount(stats%n, density)
+    !     call addRealCount(stats%rho, rho)
+    !     call addRealCount(stats%cx_0, cx)
+    !     call addRealCount(stats%cy_0, cy)
+    !     call addRealCount(stats%cz_0, cz)
+    !     call addRealCount(stats%p, p)
+    !     call addRealCount(stats%T, T)
+    !
+    !   end do 
+    ! end do 
+    ! !$OMP END DO
+    ! deallocate(numInRect)
+    ! deallocate(cx,cy,cz)
+    ! deallocate(cx_sq,cy_sq,cz_sq)
+    ! deallocate(rho,T,p,density)
+    ! !$OMP END PARALLEL
 
   end subroutine calculateAveragesInStatisticsCells 
 

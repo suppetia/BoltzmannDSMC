@@ -308,9 +308,10 @@ contains
       counter%history(:, counter%currentPosition) = val
       counter%average = real(sum(counter%history,2), fp)/counter%currentPosition
     else
-      counter%average = counter%average - real(counter%history(:, counter%currentPosition), fp)/counter%historyLength
+      ! counter%average = counter%average - real(counter%history(:, counter%currentPosition), fp)/counter%historyLength
       counter%history(:, counter%currentPosition) = val
-      counter%average = counter%average + real(val, fp)/counter%historyLength
+      ! counter%average = counter%average + real(val, fp)/counter%historyLength
+      counter%average = real(sum(counter%history,2), fp)/counter%historyLength
     end if 
   end subroutine addIntegerCount
 
@@ -327,11 +328,12 @@ contains
     end if
     if (.not.counter%historyIsFull) then
       counter%history(:, counter%currentPosition) = val
-      counter%average = real(sum(counter%history,2), fp)/counter%currentPosition
+      counter%average = sum(counter%history,2)/counter%currentPosition
     else
-      counter%average = counter%average - counter%history(:, counter%currentPosition)/counter%historyLength
+      ! counter%average = counter%average - counter%history(:, counter%currentPosition)/counter%historyLength
       counter%history(:, counter%currentPosition) = val
-      counter%average = counter%average + val/counter%historyLength
+      ! counter%average = counter%average + val/counter%historyLength
+      counter%average = sum(counter%history,2)/counter%historyLength
     end if 
   end subroutine addRealCount
 

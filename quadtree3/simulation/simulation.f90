@@ -62,11 +62,9 @@ contains
 
     threadID = omp_get_thread_num() + 1
 
-    !> TODO: write a thread-safe version for this
+    !> TODO: write a thread-safe version for this ?
     call initializeParticleList(list, chunksize=10000)
 
-
-    !> TODO: can be parallelized if at the end the particle list is merged
     !$OMP DO
     do i = 1, tree%leafNumber
       n => tree%leafs(i)%node
@@ -96,9 +94,12 @@ contains
           call append(list, tree%particles(idx+j, :), tree%particleTypes(idx+j))
           numParticles = numParticles - 1
           tree%particles(idx+j, :) = tree%particles(idx+numParticles, :)
+          tree%particles(idx+numParticles, :) = -1 !> mark as invalid
           tree%particleTypes(idx+j) = tree%particleTypes(idx+numParticles)
+          tree%particleTypes(idx+numParticles) = -1 !> mark as invalid
         end if 
       end do 
+      ! print *, "node", i, "numParticles before", tree%particleNumbers(i), "after", numParticles
       tree%particleNumbers(i) = numParticles
     end do 
     !$OMP END DO
@@ -163,6 +164,9 @@ contains
     do i = 1,numStructures
       collisionDistance(:, i) = (particles(:, 1) - structures(1,i)) * structures(5,i) &
         + (particles(:, 2) - structures(2,i)) * structures(6,i)
+      ! print *, "node", nodeIdx, "structure", i, "dist", collisionDistance(:, i)
+      ! print *, structures(5, 1)*structures(6,2) - structures(6,1)*structures(5,2)
+      ! print *, structures(5, 1),structures(5,2) , structures(6,1),structures(6,2)
     end do 
 
     do i = 1, numParticles
@@ -170,12 +174,8 @@ contains
       if (numStructures == 1 .and. collisionDistance(i,1) <= 0) then
         j = 1
       else if (numStructures == 2) then
-        !> check if the inside area is concave or convex in this region
+        !> check if the inside area (in the structure) is concave or convex in this region
         !> convex => n_1 x n_2 < 0
-        !> in this case both must be <= 0 for a collision
-        ! if (all(collisionDistance(i, :) <= 0)) then
-        !   j = maxloc(collisionDistance(i, :), 1) !> find index of closest structure
-        ! end if
         if (structures(5, 1)*structures(6,2) - structures(6,1)*structures(5,2) < 0) then
           !> in this case only one dotp can be < 0 => this means collision
           if (any(collisionDistance(i,:) <= 0)) then
@@ -243,14 +243,28 @@ contains
 
     !> number of collisions in the cell = 1/2 * N N_avg F_N (sigma_T, c_r)_max dt/V_c
     ! print *, "hi"
+    ! print *, numParticles
     ! print *,.5_fp * numParticles * node%stats%particleCounter%average(1) 
     ! print *, simParams%F_N * node%stats%maxSigmaC
     ! print *, simParams%V_c * cellWidth(node) * cellHeight(node)
     ! print *, .5_fp * numParticles * node%stats%particleCounter%average(1) &
     !   * simParams%F_N * node%stats%maxSigmaC * simParams%dt &
     !   / (simParams%V_c * cellWidth(node) * cellHeight(node))
-    nCollisions = .5_fp * numParticles * (node%stats%particleCounter%average(1)-1) &
-      * simParams%F_N * node%stats%maxSigmaC * simParams%dt &
+    ! print *, .5_fp * numParticles * node%stats%particleCounter%average(1) &
+    !   * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
+    !   / (simParams%V_c * cellWidth(node) * cellHeight(node))
+    ! print *, int(.5_fp * numParticles * node%stats%particleCounter%average(1) &
+    !   * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
+    !   / (simParams%V_c * cellWidth(node) * cellHeight(node)))
+    ! print *, .5_fp * (numParticles-1) * node%stats%particleCounter%average(1) &
+    !   * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
+    !   / (simParams%V_c * cellWidth(node) * cellHeight(node))
+    if (numParticles == 0) then
+      nCollisions = 0
+      return
+    end if 
+    nCollisions = .5_fp * (numParticles-1) * node%stats%particleCounter%average(1) &
+      * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
       / (simParams%V_c * cellWidth(node) * cellHeight(node))
 
     ! print *, nCollisions
@@ -285,7 +299,12 @@ contains
 
         call random_number(rnd)
         !> the collision occurs with probability c_r*sigma_T/(c_r*sigma_T)_max
-        if (rnd < c_r * sigma / node%stats%maxSigmaC) then
+        ! if (rnd * node%stats%maxSigmaC < c_r * sigma / node%stats%maxSigmaC) then
+        ! print *, particles(p1,:)
+        ! print *, particles(p2,:)
+        ! print *, sigma, node%stats%maxSigmaC, c_r, rnd, c_r * (sigma / node%stats%maxSigmaC) 
+        ! print *, rnd * node%stats%maxSigmaC < c_r * sigma
+        if (rnd * node%stats%maxSigmaC < c_r * sigma) then
 
           if (p2 .ne. p1+1) then
             !> swap the particle p2 to position p1+1 to avoid that it is respected in other collisions
@@ -310,6 +329,7 @@ contains
 
       if (p1 >= numParticles-1) exit
     end do
+    ! print *, nCollisions - nCurrentCollisions, nCurrentCollisions
     nCollisions = nCurrentCollisions
   end subroutine selectCollisionPairs
 
@@ -339,7 +359,7 @@ contains
       p2 = pairs(i) + 1
       vecC_r(:) = particles(p1, 3:) - particles(p2, 3:)
       c_r = norm2(vecC_r(:))
-      m1 = simParams%m(particleTypes(p1)) !> TODO: look up the type of a particle
+      m1 = simParams%m(particleTypes(p1))
       m2 = simParams%m(particleTypes(p2))
       
       vecC_m(:) = (m1*particles(p1, 3:) + m2*particles(p2, 3:))/(m1+m2)
@@ -348,24 +368,34 @@ contains
       !> generate random deflection angles
       call random_number(rnd)
       chi = 2.*PI*rnd(1) !> random deflection angle
+      chi = 1
       c_chi = cos(chi)
       ! c_chi = 2.*rnd(1)-1. !> cosine of a random elevation angle
-      s_chi = sqrt(1.-c_chi*c_chi) !> sine of that angle
+      ! s_chi = sqrt(1.-c_chi*c_chi) !> sine of that angle
+      s_chi = sin(chi) !> sine of that angle
       eps = 2.*PI*rnd(2) !> random azimuth angle
+      eps = 0
       c_eps = cos(eps)
-      s_eps = sqrt(1.-c_eps*c_eps)
+      ! s_eps = sqrt(1.-c_eps*c_eps)
+      s_eps = sin(eps)
 
       !> (y_r^2+w_r^2)^{1/2}
       tmp = sqrt(vecC_r(2)*vecC_r(2)+vecC_r(3)*vecC_r(3))
-
+            
       !> calculate the new relativ velocity components
-      vecNewC_r(1) = vecC_r(1) * c_chi + s_chi * s_eps * tmp
-      vecNewC_r(2) = vecC_r(2) * c_chi + s_chi * (c_r*vecC_r(3)*c_eps - vecC_r(1)*vecC_r(2)*s_eps) / tmp
-      vecNewC_r(2) = vecC_r(3) * c_chi - s_chi * (c_r*vecC_r(2)*c_eps + vecC_r(1)*vecC_r(3)*s_eps) / tmp
+      if (tmp == 0._fp) then
+        vecNewC_r = vecC_r * c_chi
+      else
+        vecNewC_r(1) = vecC_r(1) * c_chi + s_chi * s_eps * tmp
+        vecNewC_r(2) = vecC_r(2) * c_chi + s_chi * (c_r*c_eps*vecC_r(3) - vecC_r(1)*vecC_r(2)*s_eps) / tmp
+        vecNewC_r(3) = vecC_r(3) * c_chi - s_chi * (c_r*c_eps*vecC_r(2) + vecC_r(1)*vecC_r(3)*s_eps) / tmp
+      end if 
 
       !> update the velocity components after the collision
+      ! print *, "before", NORM2(particles(p1, 3:))**2 + NORM2(particles(p2, 3:))**2
       particles(p1, 3:) = vecC_m(:) + m2/(m1+m2) * vecNewC_r(:)
       particles(p2, 3:) = vecC_m(:) - m1/(m1+m2) * vecNewC_r(:)
+      ! print *, "after", NORM2(particles(p1, 3:))**2 + NORM2(particles(p2, 3:))**2
     end do
 
     if (associated(pairs)) then
