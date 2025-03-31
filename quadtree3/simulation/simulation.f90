@@ -59,6 +59,7 @@ contains
     allocate(numParticlesThread(omp_get_num_threads()))
     numParticlesThread = 0
     !$OMP END SINGLE
+    !$OMP BARRIER
 
     threadID = omp_get_thread_num() + 1
 
@@ -126,6 +127,8 @@ contains
 
     call deleteParticleList(list)
     !$OMP END PARALLEL
+    deallocate(numParticlesThread)
+    deallocate(particleStartIdx)
 
     ! particles => list%particles(:list%numParticles, :)
     call findParticleCells(tree, particles, leafIdx)
@@ -164,7 +167,12 @@ contains
     do i = 1,numStructures
       collisionDistance(:, i) = (particles(:, 1) - structures(1,i)) * structures(5,i) &
         + (particles(:, 2) - structures(2,i)) * structures(6,i)
-      ! print *, "node", nodeIdx, "structure", i, "dist", collisionDistance(:, i)
+      ! if (numParticles > 0) then
+      !   print *, "node", nodeIdx, "structure", i, "dist", collisionDistance(:, i)
+      !   print *, particles(:, 1) - structures(1,i)
+      !   print *, particles(:, 2) - structures(2,i)
+      !   print *, structures(5,i), structures(6,i)
+      ! end if 
       ! print *, structures(5, 1)*structures(6,2) - structures(6,1)*structures(5,2)
       ! print *, structures(5, 1),structures(5,2) , structures(6,1),structures(6,2)
     end do 
@@ -242,28 +250,30 @@ contains
     particleTypes => tree%particleTypes(tree%particleStartIndices(idx):tree%particleStartIndices(idx)+numParticles-1)
 
     !> number of collisions in the cell = 1/2 * N N_avg F_N (sigma_T, c_r)_max dt/V_c
-    ! print *, "hi"
-    ! print *, numParticles
-    ! print *,.5_fp * numParticles * node%stats%particleCounter%average(1) 
-    ! print *, simParams%F_N * node%stats%maxSigmaC
-    ! print *, simParams%V_c * cellWidth(node) * cellHeight(node)
-    ! print *, .5_fp * numParticles * node%stats%particleCounter%average(1) &
-    !   * simParams%F_N * node%stats%maxSigmaC * simParams%dt &
-    !   / (simParams%V_c * cellWidth(node) * cellHeight(node))
-    ! print *, .5_fp * numParticles * node%stats%particleCounter%average(1) &
-    !   * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
-    !   / (simParams%V_c * cellWidth(node) * cellHeight(node))
-    ! print *, int(.5_fp * numParticles * node%stats%particleCounter%average(1) &
-    !   * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
-    !   / (simParams%V_c * cellWidth(node) * cellHeight(node)))
-    ! print *, .5_fp * (numParticles-1) * node%stats%particleCounter%average(1) &
-    !   * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
-    !   / (simParams%V_c * cellWidth(node) * cellHeight(node))
+    ! if ( numParticles > 0) then
+    !   print *, "hi"
+    !   print *, numParticles
+    !   print *,.5_fp * numParticles * node%stats%particleCounter%average(1) 
+    !   print *, simParams%F_N * node%stats%maxSigmaC
+    !   print *, simParams%V_c * cellWidth(node) * cellHeight(node)
+    !   print *, .5_fp * numParticles * node%stats%particleCounter%average(1) &
+    !     * simParams%F_N * node%stats%maxSigmaC * simParams%dt &
+    !     / (simParams%V_c * cellWidth(node) * cellHeight(node))
+    !   print *, .5_fp * numParticles * node%stats%particleCounter%average(1) &
+    !     * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
+    !     / (simParams%V_c * cellWidth(node) * cellHeight(node))
+    !   print *, int(.5_fp * numParticles * node%stats%particleCounter%average(1) &
+    !     * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
+    !     / (simParams%V_c * cellWidth(node) * cellHeight(node)))
+    !   print *, .5_fp * (numParticles-1) * node%stats%particleCounter%average(1) &
+    !     * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
+    !     / (simParams%V_c * cellWidth(node) * cellHeight(node))
+    ! end if 
     if (numParticles == 0) then
       nCollisions = 0
       return
     end if 
-    nCollisions = .5_fp * (numParticles-1) * node%stats%particleCounter%average(1) &
+    nCollisions = .5_fp * numParticles * node%stats%particleCounter%average(1) &
       * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
       / (simParams%V_c * cellWidth(node) * cellHeight(node))
 

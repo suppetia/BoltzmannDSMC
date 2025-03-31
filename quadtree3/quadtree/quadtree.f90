@@ -1176,7 +1176,6 @@ contains
     real(fp) :: x,y,width,height
     real(fp), dimension(:), allocatable :: rho,T,p,density
     real(fp), dimension(:), allocatable :: cx,cy,cz,cx_sq,cy_sq,cz_sq
-    ! logical, pointer, dimension(:) :: mask, maskType
     integer(i4), dimension(:), allocatable :: numInRect
 
     integer(i2), dimension(:,:), allocatable :: statCellID
@@ -1190,23 +1189,33 @@ contains
     allocate(maskType(size(tree%particleTypes), simParams%numParticleSpecies))
     statCellID = 0
 
+
     !$OMP PARALLEL shared(tree, maskType, statCellID,width,height) &
     !$OMP private(x,y,stats,i,j,l,m,numInRect,mask,maskLoc,cx,cy,cz,cx_sq,cy_sq,cz_sq,rho,T,p,density)
+
     !$OMP sections
     !$OMP section
-    do i = 1_i2, tree%treeParams%numStatisticsCellColumns
-      x = (i-1)*width
-      where (tree%particles(:, 1) >= x .and. tree%particles(:, 1) < x+width)
-        statCellID(:, 1) = i
-      end where
-    end do 
+    ! where (tree%particles(:,1) >= 0.0_fp)
+    !   statCellID(:, 1) = int(tree%particles(:, 1) / width) + 1
+    !   statCellID(:, 2) = int(tree%particles(:, 2) / height) + 1
+    ! end where
+    statCellID(:, 1) = int(floor(tree%particles(:, 1) / width), i2) + 1_i2
     !$OMP section
-    do i = 1_i2, tree%treeParams%numStatisticsCellRows
-      y = (i-1)*height
-      where (tree%particles(:, 2) >= y .and. tree%particles(:, 2) < y+height)
-        statCellID(:, 2) = i
-      end where
-    end do 
+    statCellID(:, 2) = int(floor(tree%particles(:, 2) / height), i2) + 1_i2
+    ! !$OMP section
+    ! do i = 1_i2, tree%treeParams%numStatisticsCellColumns
+    !   x = (i-1)*width
+    !   where (tree%particles(:, 1) >= x .and. tree%particles(:, 1) < x+width)
+    !     statCellID(:, 1) = i
+    !   end where
+    ! end do 
+    ! !$OMP section
+    ! do i = 1_i2, tree%treeParams%numStatisticsCellRows
+    !   y = (i-1)*height
+    !   where (tree%particles(:, 2) >= y .and. tree%particles(:, 2) < y+height)
+    !     statCellID(:, 2) = i
+    !   end where
+    ! end do 
     !$OMP section
     do m = 1_i1, simParams%numParticleSpecies
       maskType(:, m) = tree%particleTypes == m
@@ -1249,7 +1258,7 @@ contains
         end if 
 
         !> number density
-        density = numInRect / (simParams%V_c * width * height) * simParams%F_N
+        density = numInRect / (simParams%V_c/tree%treeParams%width/tree%treeParams%height * width * height) * simParams%F_N
         !> mass density
         rho(2:) = density(2:)*simParams%m
         rho(1) = sum(rho(2:))
@@ -1299,136 +1308,11 @@ contains
     deallocate(cx,cy,cz)
     deallocate(cx_sq,cy_sq,cz_sq)
     deallocate(rho,T,p,density)
+    deallocate(maskLoc, mask)
     !$OMP END PARALLEL
 
     deallocate(maskType, statCellID)
 
-
-    !
-    ! !$OMP PARALLEL shared(tree, width, height) &
-    ! !$OMP private(x,y,n,stats,stack,j,k,l,idx,num,numInRect,mask,maskType,cx,cy,cz,cx_sq,cy_sq,cz_sq,rho,T,p,density)
-    ! j = simParams%numParticleSpecies+1
-    ! allocate(numInRect(j))
-    ! allocate(cx(j),cy(j),cz(j))
-    ! allocate(cx_sq(j),cy_sq(j),cz_sq(j))
-    ! allocate(rho(j),T(j),p(j),density(j))
-    ! !$OMP DO
-    ! do i = 1_i2, tree%treeParams%numStatisticsCellColumns
-    !   x = (i-1)*width
-    !   do j = 1_i2, tree%treeParams%numStatisticsCellRows
-    !     y = (j-1)*height
-    !     stats => tree%statisticsCells(j,i)
-    !     call findCellsContainedInRect((/x,y,width,height/), tree, stack)
-    !
-    !     numInRect = 0
-    !     cx = 0.0
-    !     cy = 0.0
-    !     cz = 0.0
-    !     cx_sq = 0.0
-    !     cy_sq = 0.0
-    !     cz_sq = 0.0
-    !     do k = 1, stack%topIndex
-    !       call pop(stack, n)
-    !       idx = tree%particleStartIndices(n%nodeIdx)
-    !       num = tree%particleNumbers(n%nodeIdx)
-    !
-    !       if (num > 0) then
-    !
-    !         allocate(mask(num))
-    !         allocate(maskType(num))
-    !        
-    !         mask = tree%particles(idx:idx+num-1,1) >= x &
-    !           .and. tree%particles(idx:idx+num-1,1) < x+width &
-    !           .and. tree%particles(idx:idx+num-1,2) >= y &
-    !           .and. tree%particles(idx:idx+num-1,2) < y+height
-    !  
-    !         !> store in the first component the total number of particles in the statistics cell
-    !         ! numInRect(1) = numInRect(1) + count(mask)
-    !  
-    !         ! cx(1) = cx(1) + sum(tree%particles(idx:idx+num-1,3), mask)
-    !         ! cy(1) = cy(1) + sum(tree%particles(idx:idx+num-1,4), mask)
-    !         ! cz(1) = cz(1) + sum(tree%particles(idx:idx+num-1,5), mask)
-    !
-    !         do l = 1, tree%treeParams%numParticleSpecies
-    !           maskType = mask .and. tree%particleTypes(idx:idx+num-1) == l
-    !           numInRect(l+1) = numInRect(l+1) + count(maskType)
-    !           cx(l+1) = cx(l+1) + sum(tree%particles(idx:idx+num-1,3), maskType)
-    !           cy(l+1) = cy(l+1) + sum(tree%particles(idx:idx+num-1,4), maskType)
-    !           cz(l+1) = cz(l+1) + sum(tree%particles(idx:idx+num-1,5), maskType)
-    !           cx_sq(l+1) = cx_sq(l+1) + sum(tree%particles(idx:idx+num-1,3)**2, maskType)
-    !           cy_sq(l+1) = cy_sq(l+1) + sum(tree%particles(idx:idx+num-1,4)**2, maskType)
-    !           cz_sq(l+1) = cz_sq(l+1) + sum(tree%particles(idx:idx+num-1,5)**2, maskType)
-    !         end do 
-    !  
-    !         deallocate(mask)
-    !         deallocate(maskType)
-    !        
-    !       end if 
-    !      
-    !     end do 
-    !
-    !     numInRect(1) = sum(numInRect(2:))
-    !     if (numInRect(1) > 0) then
-    !       !> mean velocity components
-    !       !> cX_0 = (sum_{species p} m_p * mean velocity of species p)/(sum_{species p} numParticles of species p)
-    !       cx(1) = sum(simParams%m*cx(2:))/sum(simParams%m*numInRect(2:))
-    !       cy(1) = sum(simParams%m*cy(2:))/sum(simParams%m*numInRect(2:))
-    !       cz(1) = sum(simParams%m*cz(2:))/sum(simParams%m*numInRect(2:))
-    !     end if 
-    !
-    !
-    !     !> number density
-    !     density = numInRect / (simParams%V_c * width * height) * simParams%F_N
-    !     !> mass density
-    !     rho(2:) = density(2:)*simParams%m
-    !     rho(1) = sum(rho(2:))
-    !
-    !     !> translational temperature for each species (see eq.4.40 Bird2012)
-    !     where (numInRect(2:) > 0)
-    !       T(2:) = simParams%m * ((cx_sq(2:)+cy_sq(2:)+cz_sq(2:)) / numInRect(2:) - cx(1)**2-cy(1)**2-cz(1)**2)/(3*k_B)
-    !     elsewhere
-    !       T(2:) = 0.0
-    !     end where
-    !     !> total translational temperature (see eq.4.39 Bird2012)
-    !     if (numInRect(1) > 0) then
-    !       T(1) = (sum(simParams%m * (cx_sq(2:)+cy_sq(2:)+cz_sq(2:))) &
-    !         - sum(simParams%m * numInRect(2:))*(cx(1)**2+cy(1)**2+cz(1)**2)&
-    !         )/(3*k_B*numInRect(1))
-    !     else
-    !       T(1) = 0.0
-    !     end if
-    !
-    !     !> pressure
-    !     p = density * k_B * T
-    !     !> calculate the averages velocities for each particle species
-    !     where (numInRect(2:) /= 0)
-    !       cx(2:) = cx(2:) / numInRect(2:)
-    !       cy(2:) = cy(2:) / numInRect(2:)
-    !       cz(2:) = cz(2:) / numInRect(2:)
-    !       cx_sq(2:) = cx_sq(2:) / numInRect(2:)
-    !       cy_sq(2:) = cy_sq(2:) / numInRect(2:)
-    !       cz_sq(2:) = cz_sq(2:) / numInRect(2:)
-    !     end where
-    !
-    !     call deleteStack(stack)
-    !
-    !     call addIntegerCount(stats%numParticles, numInRect)
-    !     call addRealCount(stats%n, density)
-    !     call addRealCount(stats%rho, rho)
-    !     call addRealCount(stats%cx_0, cx)
-    !     call addRealCount(stats%cy_0, cy)
-    !     call addRealCount(stats%cz_0, cz)
-    !     call addRealCount(stats%p, p)
-    !     call addRealCount(stats%T, T)
-    !
-    !   end do 
-    ! end do 
-    ! !$OMP END DO
-    ! deallocate(numInRect)
-    ! deallocate(cx,cy,cz)
-    ! deallocate(cx_sq,cy_sq,cz_sq)
-    ! deallocate(rho,T,p,density)
-    ! !$OMP END PARALLEL
 
   end subroutine calculateAveragesInStatisticsCells 
 
