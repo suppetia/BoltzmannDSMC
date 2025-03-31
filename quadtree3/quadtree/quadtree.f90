@@ -1150,18 +1150,6 @@ contains
   end subroutine findCellsContainedInRect
 
 
-  ! subroutine calculateAveragesInStatisticsCells(tree, simParams)
-  !   implicit none
-  !   type(QuadTree), pointer, intent(inout) :: tree
-  !   type(SimulationParameters), pointer, intent(in) :: simParams
-  !
-  !   type(StatisticsCell), pointer :: stats
-  !   integer(i2) :: i,j
-  !   logical, dimension(:), pointer :: maskX, maskY
-  !   real(fp) :: x,y,width,height
-  !
-  ! end subroutine calculateAveragesInStatisticsCells 
-
   subroutine calculateAveragesInStatisticsCells(tree, simParams)
     implicit none
     type(QuadTree), pointer, intent(inout) :: tree
@@ -1169,84 +1157,73 @@ contains
 
     type(QuadTreeNode), pointer :: n
     type(StatisticsCell), pointer :: stats
-    type(NodeStack) :: stack
-    integer(i1) :: m
-    integer(i2) :: i,j
-    integer(i4) :: k,l,idx, num
     real(fp) :: x,y,width,height
     real(fp), dimension(:), allocatable :: rho,T,p,density
     real(fp), dimension(:), allocatable :: cx,cy,cz,cx_sq,cy_sq,cz_sq
     integer(i4), dimension(:), allocatable :: numInRect
 
-    integer(i2), dimension(:,:), allocatable :: statCellID
-    logical, pointer, dimension(:) :: maskLoc, mask
-    logical, pointer, dimension(:,:) :: maskType
+    real(fp), dimension(:,:,:,:), allocatable :: statsResultTensor, srtThread
+    integer(i2) :: r,c
+    integer(i1) :: s
+    integer(i4) :: k
 
     width = tree%treeParams%width / tree%treeParams%numStatisticsCellColumns
     height = tree%treeParams%height / tree%treeParams%numStatisticsCellRows
 
-    allocate(statCellID(size(tree%particleTypes),2))
-    allocate(maskType(size(tree%particleTypes), simParams%numParticleSpecies))
-    statCellID = 0
+    !> format: [species, quantity, row, column]
+    !> quantity order: num, cx,cy,cz, cx_sq,cy_sq,cz_sq
+    allocate(statsResultTensor(simParams%numParticleSpecies, 7, &
+      tree%treeParams%numStatisticsCellRows, tree%treeParams%numStatisticsCellColumns))
+    statsResultTensor = 0.0_fp
 
+    !$OMP PARALLEL shared(tree, width, height, statsResultTensor, simParams) &
+    !$OMP private(srtThread, c,r,s,j, cx,cy,cz,cx_sq,cy_sq,cz_sq, numInRect,p,T,density,rho, stats)
+    
+    allocate(srtThread(simParams%numParticleSpecies, 7, &
+      tree%treeParams%numStatisticsCellRows, tree%treeParams%numStatisticsCellColumns))
+    srtThread = 0.0_fp
 
-    !$OMP PARALLEL shared(tree, maskType, statCellID,width,height) &
-    !$OMP private(x,y,stats,i,j,l,m,numInRect,mask,maskLoc,cx,cy,cz,cx_sq,cy_sq,cz_sq,rho,T,p,density)
+    !$OMP DO
+    do k = 1, size(tree%particleTypes)
+      !> find the cell of each particle
+      c = int(floor(tree%particles(k, 1) / width), i2) + 1_i2
+      r = int(floor(tree%particles(k, 2) / height), i2) + 1_i2
+      s = tree%particleTypes(k)
 
-    !$OMP sections
-    !$OMP section
-    ! where (tree%particles(:,1) >= 0.0_fp)
-    !   statCellID(:, 1) = int(tree%particles(:, 1) / width) + 1
-    !   statCellID(:, 2) = int(tree%particles(:, 2) / height) + 1
-    ! end where
-    statCellID(:, 1) = int(floor(tree%particles(:, 1) / width), i2) + 1_i2
-    !$OMP section
-    statCellID(:, 2) = int(floor(tree%particles(:, 2) / height), i2) + 1_i2
-    ! !$OMP section
-    ! do i = 1_i2, tree%treeParams%numStatisticsCellColumns
-    !   x = (i-1)*width
-    !   where (tree%particles(:, 1) >= x .and. tree%particles(:, 1) < x+width)
-    !     statCellID(:, 1) = i
-    !   end where
-    ! end do 
-    ! !$OMP section
-    ! do i = 1_i2, tree%treeParams%numStatisticsCellRows
-    !   y = (i-1)*height
-    !   where (tree%particles(:, 2) >= y .and. tree%particles(:, 2) < y+height)
-    !     statCellID(:, 2) = i
-    !   end where
-    ! end do 
-    !$OMP section
-    do m = 1_i1, simParams%numParticleSpecies
-      maskType(:, m) = tree%particleTypes == m
+      !> if there is no valid particle stored
+      if (s == -1) then
+        cycle
+      end if 
+
+      srtThread(s, 1, r, c) = srtThread(s, 1, r, c) + 1._fp
+      srtThread(s, 2:4, r, c) = srtThread(s, 2:4, r, c) + tree%particles(k, 3:5)
+      srtThread(s, 5:7, r, c) = srtThread(s, 5:7, r, c) + tree%particles(k, 3:5)**2
     end do 
-    !$OMP end sections
+    !$OMP END DO
 
+    !$OMP CRITICAL
+    !> collect all the data
+    statsResultTensor = statsResultTensor + srtThread
+    !$OMP END CRITICAL
+
+    !$OMP BARRIER
     j = simParams%numParticleSpecies+1
     allocate(numInRect(j))
     allocate(cx(j),cy(j),cz(j))
     allocate(cx_sq(j),cy_sq(j),cz_sq(j))
     allocate(rho(j),T(j),p(j),density(j))
-    allocate(maskLoc(size(statCellID, 1)))
-    allocate(mask(size(statCellID, 1)))
+
     !$OMP DO
-    do i = 1_i2, tree%treeParams%numStatisticsCellColumns
-      do j = 1_i2, tree%treeParams%numStatisticsCellRows
-        stats => tree%statisticsCells(j,i)
-
-        numInRect = 0
-        maskLoc = statCellID(:, 1) == i .and. statCellID(:, 2) == j
-
-        do l = 1, tree%treeParams%numParticleSpecies
-          mask = maskLoc .and. maskType(:, l)
-          numInRect(l+1) = count(mask)
-          cx(l+1) = sum(tree%particles(:,3), mask)
-          cy(l+1) = sum(tree%particles(:,4), mask)
-          cz(l+1) = sum(tree%particles(:,5), mask)
-          cx_sq(l+1) = sum(tree%particles(:,3)**2, mask)
-          cy_sq(l+1) = sum(tree%particles(:,4)**2, mask)
-          cz_sq(l+1) = sum(tree%particles(:,5)**2, mask)
-        end do 
+    do r = 1_i2, tree%treeParams%numStatisticsCellRows
+      do c = 1_i2, tree%treeParams%numStatisticsCellColumns
+        stats => tree%statisticsCells(r,c)
+        numInRect(2:) = int(statsResultTensor(:, 1, r,c), i2)
+        cx(2:) = statsResultTensor(:, 2, r,c)
+        cy(2:) = statsResultTensor(:, 3, r,c)
+        cz(2:) = statsResultTensor(:, 4, r,c)
+        cx_sq(2:) = statsResultTensor(:, 5, r,c)
+        cy_sq(2:) = statsResultTensor(:, 6, r,c)
+        cz_sq(2:) = statsResultTensor(:, 7, r,c)
 
         numInRect(1) = sum(numInRect(2:))
         if (numInRect(1) > 0) then
@@ -1290,8 +1267,6 @@ contains
           cz_sq(2:) = cz_sq(2:) / numInRect(2:)
         end where
 
-        call deleteStack(stack)
-
         call addIntegerCount(stats%numParticles, numInRect)
         call addRealCount(stats%n, density)
         call addRealCount(stats%rho, rho)
@@ -1300,19 +1275,19 @@ contains
         call addRealCount(stats%cz_0, cz)
         call addRealCount(stats%p, p)
         call addRealCount(stats%T, T)
-
       end do 
-    end do 
+    end do
     !$OMP END DO
+
     deallocate(numInRect)
     deallocate(cx,cy,cz)
     deallocate(cx_sq,cy_sq,cz_sq)
     deallocate(rho,T,p,density)
-    deallocate(maskLoc, mask)
+
+    deallocate(srtThread)
     !$OMP END PARALLEL
 
-    deallocate(maskType, statCellID)
-
+    deallocate(statsResultTensor)
 
   end subroutine calculateAveragesInStatisticsCells 
 

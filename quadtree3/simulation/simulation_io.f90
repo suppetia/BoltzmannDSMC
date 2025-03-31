@@ -85,7 +85,7 @@ contains
       end if 
     else
       simParams%writeParticlesOffset = 0
-      simParams%writeParticlesFrequency = 0
+      simParams%writeParticlesFrequency = 1
     end if 
     call cfg%get("Simulation", "particleSpawnDistribution", tmpInt4)
     simParams%particleSpawnDistribution = tmpInt4
