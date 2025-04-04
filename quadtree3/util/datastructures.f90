@@ -30,6 +30,8 @@ module m_datastructures
     real(fp), pointer, dimension(:) :: T_ref !> reference temperature for the diameter of the particles (index represents the particle type)
     real(fp), pointer, dimension(:) :: m !> masses of the particles
     integer(i1) :: collisionModel !> 1: hard sphere, 2: variable hard sphere (VHS), 3: variable soft sphere (VSS)
+    integer(i1) :: surfaceCollisionModel !> 1: specular, 2: diffuse
+    real(fp) :: surfaceTemperature
     integer(i1) :: particleSpawnDistribution !> 1: equidistant, 2: uniform
     integer(i4) :: writeStatsFrequency, writeStatsOffset
     logical :: writeParticles

@@ -294,6 +294,7 @@ contains
         node%children(i)%stats%speciesStatsCounter(k)%counter%average = node%stats%speciesStatsCounter(k)%counter%average / 4
         node%children(i)%stats%speciesStatsCounter(k)%counter%currentPosition = &
           node%stats%speciesStatsCounter(k)%counter%currentPosition
+        node%children(i)%stats%n = node%stats%n / 4
       end do 
     end do
     call deleteCellStats(node%stats)
@@ -539,6 +540,7 @@ contains
 
     !> merge the cell stats from the child nodes
     call initializeCellStats(node%stats, tree%treeParams)
+    node%stats%n = 0.0_fp
     node%stats%particleCounter%currentPosition = node%children(1)%stats%particleCounter%currentPosition
     node%stats%statsCounter%currentPosition = node%children(1)%stats%particleCounter%currentPosition
     do j = 1, tree%treeParams%numParticleSpecies
@@ -555,6 +557,7 @@ contains
       !> update cell stats
       node%stats%statsCounter%history = node%stats%statsCounter%history + childNode%stats%statsCounter%history
       node%stats%statsCounter%average = node%stats%statsCounter%average + childNode%stats%statsCounter%average
+      node%stats%n = node%stats%n + childNode%stats%n
       !> update species stats
       do k = 1, tree%treeParams%numParticleSpecies
         node%stats%speciesStatsCounter(k)%counter%history = node%stats%speciesStatsCounter(k)%counter%history &
@@ -1165,7 +1168,7 @@ contains
     real(fp), dimension(:,:,:,:), allocatable :: statsResultTensor, srtThread
     integer(i2) :: r,c
     integer(i1) :: s
-    integer(i4) :: k
+    integer(i4) :: k,j
 
     width = tree%treeParams%width / tree%treeParams%numStatisticsCellColumns
     height = tree%treeParams%height / tree%treeParams%numStatisticsCellRows

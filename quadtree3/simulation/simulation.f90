@@ -3,7 +3,7 @@ module m_simulation  !
   use m_quadtree, only: QuadTreeNode, QuadTree, cellX, cellY, cellWidth, cellHeight, &
     insertParticles, findParticleCells, updateTreeNodes, calculateAveragesInStatisticsCells
   use m_datastructures, only: SimulationParameters, ParticleList, append, initializeParticleList, deleteParticleList
-  use m_util, only: PI, sigma_T
+  use m_util, only: PI, k_B, sigma_T
   use omp_lib, only: omp_get_num_threads, omp_get_thread_num
   implicit none
 
@@ -39,7 +39,7 @@ contains
   subroutine moveParticles(tree, params)
     implicit none
     type(QuadTree), pointer, intent(inout) :: tree
-    type(SimulationParameters), intent(in) :: params
+    type(SimulationParameters), pointer, intent(in) :: params
 
     type(QuadTreeNode), pointer :: n
     type(ParticleList) :: list
@@ -77,7 +77,7 @@ contains
       tree%particles(idx:idx+numParticles-1, 2) = tree%particles(idx:idx+numParticles-1, 2)&
         + params%dt * tree%particles(idx:idx+numParticles-1, 4) 
 
-      call collideWithStructures(tree, i)
+      call collideWithStructures(tree, i, params)
 
       x = cellX(n) * tree%treeParams%width
       y = cellY(n) * tree%treeParams%height
@@ -142,15 +142,18 @@ contains
 
   end subroutine moveParticles 
 
-  subroutine collideWithStructures(tree, nodeIdx)
+  subroutine collideWithStructures(tree, nodeIdx, params)
     implicit none
     type(QuadTree), pointer, intent(inout) :: tree
     integer(i4), intent(in) :: nodeIdx
+    type(SimulationParameters), pointer, intent(in) :: params
 
     real(fp), dimension(:,:), pointer :: collisionDistance, structures, particles
+    integer(i1), dimension(:), pointer :: particleTypes
     integer(i4) :: i, numParticles
     integer(i1) :: numStructures, j
     real(fp) :: v_x, v_y, s_x, s_y, vdotn, t
+    real(fp) :: v, theta, phi, rnd(3)
 
     if (tree%structures(nodeIdx)%numStructures == 0) then
       return
@@ -161,6 +164,7 @@ contains
 
     numParticles = tree%particleNumbers(nodeIdx)
     particles => tree%particles(tree%particleStartIndices(nodeIdx):tree%particleStartIndices(nodeIdx)+numParticles-1, :)
+    particleTypes => tree%particleTypes(tree%particleStartIndices(nodeIdx):tree%particleStartIndices(nodeIdx)+numParticles-1)
 
     allocate(collisionDistance(numParticles, numStructures))
 
@@ -204,10 +208,24 @@ contains
       !   j = maxloc(collisionDistance(i, :), 1) !> find index of closest structure
         v_x = particles(i, 3)
         v_y = particles(i, 4)
-        !> update the velocity of the particle as v <- v - 2(v*n)n
-        vdotn = 2*(v_x*structures(5,j) + v_y*structures(6,j))
-        particles(i, 3) = v_x - vdotn * structures(5,j)
-        particles(i, 4) = v_y - vdotn * structures(6,j)
+        if (params%surfaceCollisionModel == 1_i1) then
+          !> update the velocity of the particle as v <- v - 2(v*n)n
+          vdotn = 2*(v_x*structures(5,j) + v_y*structures(6,j))
+          particles(i, 3) = v_x - vdotn * structures(5,j)
+          particles(i, 4) = v_y - vdotn * structures(6,j)
+        elseif (params%surfaceCollisionModel == 2_i1) then
+          !> diffuse reflection
+          call random_number(rnd)
+          v = sqrt(-2*k_B*params%surfaceTemperature/params%m(particleTypes(i))*log(rnd(1)))
+          theta = asin(sqrt(rnd(2))) !> random angle relative to the normal
+          ! theta = theta + atan2(structures(6,j), structures(5,j))
+          phi = 2._fp * PI * rnd(3)
+          particles(i, 3) = v*(sin(theta)*cos(phi)*-structures(6,j)+cos(theta)*structures(5,j))
+          particles(i, 4) = v*(sin(theta)*cos(phi)*structures(5,j)+cos(theta)*structures(6,j))
+          particles(i, 5) = v*sin(theta)*cos(phi)
+        else 
+          print *, "Surface collision model not implemented!"
+        end if 
         !> find the intersection of the structure and the particle trajectory
         s_x = structures(3,j) - structures(1,j)
         s_y = structures(4,j) - structures(2,j)
@@ -241,7 +259,7 @@ contains
     integer(i1), dimension(:), pointer :: particleTypes
     real(fp), dimension(5) :: tmpParticle
     integer(i1) :: tmpParticleType
-    real(fp) :: c_r, sigma
+    real(fp) :: c_r, sigma, ntcNum
     real(fp) :: rnd
 
     idx = node%nodeIdx
@@ -273,12 +291,21 @@ contains
       nCollisions = 0
       return
     end if 
-    nCollisions = .5_fp * numParticles * node%stats%particleCounter%average(1) &
+    ntcNum = .5_fp * numParticles * (numParticles-1) &
       * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
-      / (simParams%V_c * cellWidth(node) * cellHeight(node))
-
+      / (simParams%V_c * cellWidth(node) * cellHeight(node)) + node%stats%n
+    ! print *, ntcNum
+    if (ntcNum < 0.0_fp) then
+      ntcNum = 0.0_fp
+    end if 
+    nCollisions = int(ntcNum)
+    ! node%stats%n = ntcNum - nCollisions
+    ! nCollisions = .5_fp * numParticles * (node%stats%particleCounter%average(1)-1) &
+    !   * (simParams%F_N * node%stats%maxSigmaC) * simParams%dt &
+    !   / (simParams%V_c * cellWidth(node) * cellHeight(node))
     ! print *, nCollisions
     if (nCollisions <= 0) then
+      node%stats%n = ntcNum
       nCollisions = 0
       return
     end if 
@@ -341,6 +368,7 @@ contains
     end do
     ! print *, nCollisions - nCurrentCollisions, nCurrentCollisions
     nCollisions = nCurrentCollisions
+    node%stats%n = ntcNum - nCollisions
   end subroutine selectCollisionPairs
 
   subroutine collide(node, tree, pairs, numCollisions, simParams)

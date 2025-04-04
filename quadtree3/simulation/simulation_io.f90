@@ -122,6 +122,15 @@ contains
     simParams%T_ref = tmpDoubleArray
     deallocate(tmpDoubleArray)
 
+    !> parameters of the surface
+    call cfg%get("Surface", "surfaceCollisionModel", tmpInt4)
+    simParams%surfaceCollisionModel = tmpInt4
+    if (tmpInt4 == 2) then !> diffuse surface reflections
+      call cfg%get("Surface", "surfaceTemperature", simParams%surfaceTemperature)
+    else
+      simParams%surfaceTemperature = 1._fp
+    end if 
+
   end subroutine parseSimulationConfiguration 
 
   subroutine setupSimulation(filename, tree, simParams)
@@ -141,6 +150,7 @@ contains
 
     call parseSimulationConfiguration(filename, simParams, treeParams)
     call parseSimulationSequence(simParams%filebasename//".sim", simSeq)
+    print *, simSeq%spawnArea(:, 1)
 
     call createTreeFromFile(tree, treeParams, simParams%filebasename//".tree")
     simParams%width = tree%treeParams%width

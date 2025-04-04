@@ -117,12 +117,15 @@ program run_simulation
             + particles(n:n+m-1, 2) * simParams%simSeq%spawnArea(4*(j-1)+4, currentSimState)
         end if 
         !> rescale the velocities
-        particles(n:n+m-1, 3) = simParams%simSeq%velocityDistribution(4*(j-1)+1, currentSimState) &
-          + particles(n:n+m-1, 3) * simParams%simSeq%velocityDistribution(4*(j-1)+4, currentSimState)
-        particles(n:n+m-1, 4) = simParams%simSeq%velocityDistribution(4*(j-1)+2, currentSimState) &
-          + particles(n:n+m-1, 4) * simParams%simSeq%velocityDistribution(4*(j-1)+5, currentSimState)
-        particles(n:n+m-1, 5) = simParams%simSeq%velocityDistribution(4*(j-1)+3, currentSimState) &
-          + particles(n:n+m-1, 5) * simParams%simSeq%velocityDistribution(4*(j-1)+6, currentSimState)
+        particles(n:n+m-1, 3) = simParams%simSeq%velocityDistribution(6*(j-1)+1, currentSimState) &
+          + particles(n:n+m-1, 3) * simParams%simSeq%velocityDistribution(6*(j-1)+4, currentSimState)
+        particles(n:n+m-1, 4) = simParams%simSeq%velocityDistribution(6*(j-1)+2, currentSimState) &
+          + particles(n:n+m-1, 4) * simParams%simSeq%velocityDistribution(6*(j-1)+5, currentSimState)
+        particles(n:n+m-1, 5) = simParams%simSeq%velocityDistribution(6*(j-1)+3, currentSimState) &
+          + particles(n:n+m-1, 5) * simParams%simSeq%velocityDistribution(6*(j-1)+6, currentSimState)
+        ! print *, "hi", j, particles(n, :)
+        ! print *, m, simParams%simSeq%spawnArea(4*(j-1)+1:4*j, currentSimState)
+        ! print *, m, simParams%simSeq%velocityDistribution(6*(j-1)+1:6*j, currentSimState)
   
         n = n+m
       end do 
