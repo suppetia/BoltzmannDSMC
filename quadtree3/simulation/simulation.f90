@@ -220,7 +220,7 @@ contains
           theta = asin(sqrt(rnd(2))) !> random angle relative to the normal
           ! theta = theta + atan2(structures(6,j), structures(5,j))
           phi = 2._fp * PI * rnd(3)
-          particles(i, 3) = v*(sin(theta)*cos(phi)*-structures(6,j)+cos(theta)*structures(5,j))
+          particles(i, 3) = v*(sin(theta)*cos(phi)*(-structures(6,j))+cos(theta)*structures(5,j))
           particles(i, 4) = v*(sin(theta)*cos(phi)*structures(5,j)+cos(theta)*structures(6,j))
           particles(i, 5) = v*sin(theta)*cos(phi)
         else 

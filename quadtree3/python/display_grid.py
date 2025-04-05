@@ -10,6 +10,7 @@ from matplotlib.patches import Rectangle, FancyArrowPatch
 from matplotlib.collections import PatchCollection, LineCollection
 from matplotlib.animation import FuncAnimation
 import matplotlib.colors as mcolors
+import matplotlib as mpl
 import pandas as pd
 import h5py
 from scipy.optimize import curve_fit
@@ -43,19 +44,28 @@ def boltzmann(v,a,b):
 
 def read_cell_matrix(filename, datasetID):
     hf = h5py.File(filename, "r")
-    data = np.array(hf.get(f"{int(datasetID):05d}_tree")) # transpose since fortran matrices are stored columnwise
+    if "00000_stats" in hf: # old format
+        data = np.array(hf.get(f"{int(datasetID):05d}_tree"))
+    else:
+        data = np.array(hf.get(f"{int(datasetID):07d}_tree"))
     return data
 
 def read_particle_matrix(filename, datasetID):
     hf = h5py.File(filename, "r")
-    data = hf.get(f"{int(datasetID):05d}_particles")
+    if "00000_stats" in hf: # old format
+        data = hf.get(f"{int(datasetID):05d}_particles")
+    else:
+        data = hf.get(f"{int(datasetID):07d}_particles")
     if data is None:
         return np.array([[]])
     return np.array(data) # transpose since fortran matrices are stored columnwise
 
 def read_stats_matrix(filename, datasetID):
     hf = h5py.File(filename, "r")
-    data = np.array(hf.get(f"{int(datasetID):05d}_stats"))
+    if "00000_stats" in hf: # old format
+        data = np.array(hf.get(f"{int(datasetID):05d}_stats"))
+    else:
+        data = np.array(hf.get(f"{int(datasetID):07d}_stats"))
     # format: cols, rows, stat_types, particle_types+overall
     return data
 
@@ -66,6 +76,26 @@ def read_stats_matrix(filename, datasetID):
 #     stream_lines[:, 3] = cell_matrix[:, 9]
 #     stream_lines[:, 4] = cell_matrix[:, 10]
 #     return stream_lines
+
+def get_average_velocities(stats_mat, simulation_area, particle_species):
+    w, h = simulation_area
+
+    num_x = stats_mat.shape[0]
+    num_y = stats_mat.shape[1]
+    w /= stats_mat.shape[0]
+    h /= stats_mat.shape[1]
+
+    x,y = np.meshgrid(np.arange(num_x)*w+w/2, np.arange(num_y)*h+h/2)
+    u = np.zeros_like(x)
+    v = np.zeros_like(x)
+
+    for c in range(stats_mat.shape[0]):
+        for r in range(stats_mat.shape[1]):
+            u[r,c] = stats_mat[c,r,get_stat_from_name(f"cx_0 {particle_species}")[0],particle_species]
+            v[r,c] = stats_mat[c,r,get_stat_from_name(f"cy_0 {particle_species}")[0],particle_species]
+
+    return x,y,u,v
+
 
 def get_stream_lines(particle_matrix, averaging_rect, simulation_area):
 
@@ -128,19 +158,19 @@ def get_stream_lines(particle_matrix, averaging_rect, simulation_area):
 
 
 
-def get_grid_and_particles(cell_matrix, particle_matrix):
+def get_grid_and_particles(cell_matrix, particle_matrix, cnorm):
     patches = []
     colors = []
 
-    global max_brightness
+    # global max_brightness
     # max_brightness = max_brightness[1:] + [np.max(cell_matrix[:, 5])]#
     # print(cell_matrix.shape)
     # print(np.max(cell_matrix[:, 4], axis=0), np.argmax(cell_matrix[:,4], axis=0))
     # print(cell_matrix[:, :2])
-    max_brightness = max(max_brightness, np.max(cell_matrix[:, 4], axis=0))
+    # max_brightness = max(max_brightness, np.max(cell_matrix[:, 4], axis=0))
     # print(max_brightness)
     # cnorm = mcolors.Normalize(vmin=0, vmax=np.mean(max_brightness), clip=True)
-    cnorm = mcolors.Normalize(vmin=1e-4*max_brightness, vmax=.01*max_brightness, clip=True)
+    # cnorm = mcolors.Normalize(vmin=1e-4*max_brightness, vmax=.01*max_brightness, clip=True)
     # cnorm = mcolors.LogNorm(vmin=1e-3*max_brightness, vmax=.1*max_brightness, clip=True)
 
     for cell in cell_matrix:
@@ -186,10 +216,12 @@ def update_plot(num, fig, ax, img_freq, img_offset, filebasename, artists, displ
     # print((num*img_freq)+img_offset, end=" ")
     # data = read_cell_matrix(f"{filebasename}_{(num*img_freq)+img_offset:05d}.h5")
     cell_mat = read_cell_matrix(f"{filebasename}.h5", (num*img_freq)+img_offset)
+    print("num leafs:", cell_mat.shape[0])
     # print(cell_mat)
     particle_mat = read_particle_matrix(f"{filebasename}.h5", (num*img_freq)+img_offset)
     # print(particle_mat)
-    points, (grid, colors) = get_grid_and_particles(cell_mat, particle_mat)
+    print("num particles:", particle_mat.shape[1])
+    points, (grid, colors) = get_grid_and_particles(cell_mat, particle_mat, cnorm=kwargs["cnorm"])
 
     stats_mat = read_stats_matrix(f"{filebasename}.h5", (num*img_freq)+img_offset)
     print(stats_mat.shape)
@@ -243,7 +275,8 @@ def update_plot(num, fig, ax, img_freq, img_offset, filebasename, artists, displ
         artists[1].set_facecolor(colors)
 
     if disp_streamvectors or disp_streamplot:
-        x,y,u,v = get_stream_lines(particle_mat, kwargs["averaging_area"], kwargs["simulation_area"])
+        # x,y,u,v = get_stream_lines(particle_mat, kwargs["averaging_area"], kwargs["simulation_area"])
+        x,y,u,v = get_average_velocities(stats_mat, kwargs["simulation_area"], get_stat_from_name(kwargs["stat_displayed"])[1])
         if disp_streamvectors:
             artists[3].set_UVC(u,v)
         if disp_streamplot:
@@ -261,18 +294,20 @@ def update_plot(num, fig, ax, img_freq, img_offset, filebasename, artists, displ
                 #     artists[4].arrows.remove()
                 # except:
                 #     ...
-            new_streamplot = ax.streamplot(x,y,u,v, broken_streamlines=True, color="red")
+            new_streamplot = ax.streamplot(x,y,u,v, broken_streamlines=False, color="black")
             artists[4] = new_streamplot
 
     if display_stats:
-        stat_id, species_id = get_stat_from_name(stat_displayed)
+        stat_id, species_id = get_stat_from_name(kwargs["stat_displayed"])
         w,h = kwargs["simulation_area"]
         w /= stats_mat.shape[0]
         h /= stats_mat.shape[1]
         statistics_cells = []
         statistics_data = []
-        cnorm = mcolors.Normalize(vmin=0, vmax=np.max(stats_mat[:,:,stat_id,species_id]))
-        print(stats_mat[:, :, stat_id, species_id])
+        # cnorm = mcolors.Normalize(vmin=0, vmax=np.max(stats_mat[:,:,stat_id,species_id]))
+        cnorm = kwargs.get("cnorm")
+        print("max", np.max(stats_mat[:, :, stat_id, species_id]))
+        print("min", np.min(stats_mat[:, :, stat_id, species_id]))
         for c in range(stats_mat.shape[0]):
             for r in range(stats_mat.shape[1]):
                 statistics_cells.append(Rectangle((c*w, r*h), w,h))
@@ -280,7 +315,7 @@ def update_plot(num, fig, ax, img_freq, img_offset, filebasename, artists, displ
 
         artists[5].set_paths(statistics_cells)
         artists[5].set_facecolor(statistics_data)
-        artists[5].set_edgecolor("g")
+        # artists[5].set_edgecolor("g")
 
 
 
@@ -292,30 +327,49 @@ def update_plot(num, fig, ax, img_freq, img_offset, filebasename, artists, displ
 # filebasename = "../data/test_19"
 filebasename = "../data/soundwaves/soundwaves2"
 filebasename = "../data/vertical_line/vl2"
+filebasename = "../data/vertical_line/vl3_2"
+# filebasename = "../data/vertical_line/triangle1"
+filebasename = "../data/temperature_exchange/T2"
+# filebasename = "../data/cylinder/c1_b"
+# filebasename = "../data/cylinder/c4"
+filebasename = "../data/shear_flow/s2"
+# filebasename = "../data/apollo_cm/cm8"
+# filebasename = "../data/debug/d1"
 # filebasename = "../data/wing1"
 # filebasename = "../data/empty1x1"
 
-display_grid = True
+display_grid = False
 display_particles = True
 display_density = False
 display_vel_hist = False
 bin_count = 50
 
 display_stream = False
-display_streamplot = True
-divs_x = 10
-divs_y = 10
+display_streamplot = False
+# divs_x = 10
+# divs_y = 10
 arrow_scale = 50000
 
 display_stats = True
-stat_displayed = "n 0"
+stat_displayed = "T 0"
 
+cnorm = mcolors.Normalize(vmin=0, vmax=6000, clip=True)
+# cnorm = mcolors.Normalize(vmin=5, vmax=10, clip=False)
+# cnorm = mcolors.Normalize(vmin=0, vmax=100, clip=True)
+cnorm = mcolors.Normalize(vmin=40, vmax=120, clip=True)
+# cnorm = mcolors.LogNorm(vmin=1e20, vmax=1e22, clip=True)
+# cnorm = mcolors.Normalize(vmin=1e13, vmax=3e13, clip=True)
+# cnorm = mcolors.LogNorm(vmin=1e18, vmax=1e20, clip=True)
 
 save_animation = False
 
-img_freq = 10
+img_freq = 500
 img_offset = 0#527
-num_images = 2000//img_freq#//4
+num_images = 100000//img_freq#//4
+# num_images = 1000 - img_offset
+img_freq = 100
+img_offset = 0#527
+num_images = 10000//img_freq#//4
 # num_images = 1000 - img_offset
 
 rect = np.array([1000,1400,300,300])
@@ -340,10 +394,10 @@ print(lines)
 figsize_max = 16
 if root.width > root.height:
     fig_x = figsize_max
-    fig_y = figsize_max * root.height/root.width
+    fig_y = (figsize_max - 2) * root.height/root.width
 else:
-    fig_y = figsize_max
-    fig_x = figsize_max * root.width/root.height
+    fig_y = figsize_max - 2
+    fig_x = (figsize_max - 2) * root.width/root.height + 2
 
 fig, ax = plt.subplots(figsize=(fig_x, fig_y))
 # ax.imshow(img)
@@ -355,6 +409,9 @@ patch = ax.add_collection(PatchCollection([], linewidth=1, edgecolor='none', fac
 print(type(patch))
 patch2 = ax.add_collection(PatchCollection([], linewidth=1, edgecolor='none', facecolor='none', alpha=alpha))
 
+
+colorbar = fig.colorbar(mpl.cm.ScalarMappable(norm=cnorm), ax=ax, orientation="vertical", label=stat_displayed)
+
 if display_vel_hist:
     ax_hist = [ax.inset_axes([.8, .7, .2, .2]), ax.inset_axes([.8, .4, .2, .2])]
 else:
@@ -365,11 +422,17 @@ else:
 # particles = read_particle_matrix(filebasename+".h5", 0)
 # print(particles)
 
-x,y,u,v = get_stream_lines(np.array([[]]),
-                           (root.width/divs_x, root.height/divs_y),
-                           (root.width, root.height))
-stream = ax.quiver(x,y,u,v, scale=arrow_scale)
-print(type(stream))
+if display_stream:
+    # x,y,u,v = get_stream_lines(np.array([[]]),
+    #                            (root.width/divs_x, root.height/divs_y),
+    #                            (root.width, root.height))
+    x,y,u,v = get_average_velocities(read_stats_matrix(filebasename+".h5", 0),
+                                     simulation_area=(root.width, root.height),
+                                     particle_species=0)
+    stream = ax.quiver(x,y,u,v, scale=arrow_scale)
+    print(type(stream))
+else:
+    stream = None
 
 
 # ani = FuncAnimation(fig, update_plot, fargs=(img_freq, img_offset, filebasename,
@@ -385,8 +448,9 @@ ani = FuncAnimation(fig, partial(update_plot,
                                  display_params=[display_grid, display_particles, display_density, display_vel_hist, display_stream, display_streamplot, display_stats],
                                  hist_params=[rect, ax_hist, bin_count],
                                  simulation_area=(root.width, root.height),
-                                 averaging_area=(root.width/divs_x, root.height/divs_y),
-                                 stat_displayed=stat_displayed
+                                 # averaging_area=(root.width/divs_x, root.height/divs_y),
+                                 stat_displayed=stat_displayed,
+                                 cnorm=cnorm
                                  ),
                     frames=num_images+1, interval=100, repeat=True)
 
@@ -397,11 +461,11 @@ ani = FuncAnimation(fig, partial(update_plot,
 # # ax.set_ylim(-1, 3001)
 # # ax.set_xlim(-.1,1.1)
 # # ax.set_ylim(-.1,1.1)
-ax.axis("equal")
+# ax.axis("equal")
 ax.set_ylim(-1, root.height+1)
 ax.set_xlim(-1, root.width+1)
 if save_animation:
     progress_callback = lambda i, n: print(f'Saving frame {i}/{n}\n' if i%10 == 0 else "", end="")
-    ani.save(f"{filebasename}.mp4", fps=24, dpi=200, progress_callback=progress_callback)
+    ani.save(f"{filebasename}.mp4", fps=5, dpi=200, progress_callback=progress_callback)
 else:
     plt.show()

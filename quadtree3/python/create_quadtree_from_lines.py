@@ -18,10 +18,13 @@ def getPolyGridApproximation(contour_lines, tree_root:QuadTreeNode, first_iterat
     a = None
     b = None
     for node in tree_root.leafs():
+
         if not first_iteration:
             if node.contours:
                 continue
-        for line in contour_lines:
+        contains_first_line = False
+        contains_last_line = False
+        for k, line in enumerate(contour_lines):
             left_border = [[node.x, node.y], [node.x, node.y+node.height]]
             lower_border = [[node.x, node.y], [node.x+node.width, node.y]]
             right_border = [[node.x+node.width, node.y], [node.x+node.width, node.y+node.height]]
@@ -69,6 +72,10 @@ def getPolyGridApproximation(contour_lines, tree_root:QuadTreeNode, first_iterat
             if (a is None) or (b is None):
                 # if no intersection was found
                 continue
+            if k == 0:
+                contains_first_line = True
+            elif k == len(contour_lines)-1:
+                contains_last_line = True
 
             # check the orientation of the line -> standard orientation is when a <= b
             standard_orientation = all(
@@ -93,6 +100,19 @@ def getPolyGridApproximation(contour_lines, tree_root:QuadTreeNode, first_iterat
             # print(n)
             node.contours.append([a[0], a[1], b[0], b[1], n[0], n[1]])
 
+        # if the first and the last lines are contained, change the order of the lines to have consistent order
+        # inside the node to have a well-defined "inside area" of the structure
+        # (reversing just works because this implementation is just meant for two lines per node)
+        if contains_first_line and contains_last_line:
+            print("hi")
+            print(node.contours)
+            node.contours = list(reversed(node.contours))
+            print(node.contours)
+            ...
+
+        print(node.contours)
+
+
 def snap_lines_to_grid_without_redundancy_check(lines, x,y,dx,dy):
     # snap lines to grid with grid spacing dx,dy and an offset x,y
     new_lines = []
@@ -105,22 +125,83 @@ def snap_lines_to_grid_without_redundancy_check(lines, x,y,dx,dy):
 
 if __name__ == "__main__":
 
-    filename = "../data/vertical_line/vl2"
+    # # vertical line
+    # filename = "../data/vertical_line/vl2"
+    #
+    # width=30
+    # height=15
+    #
+    # quadtree_depth = 3
+    #
+    # x_offset = 1e-9
+    # lines = np.array([
+    #     [[15 + x_offset, 0], [15+x_offset, 5]],
+    #     [[15 + x_offset, 5], [15, 5 + x_offset]],
+    #     [[15, 5 + x_offset], [15-x_offset, 5]],
+    #     [[15 - x_offset, 5], [15-x_offset, 0]],
+    #     [[width, 0], [0,0]]
+    # ])
 
-    width=30
-    height=15
+    # filename = "../data/vertical_line/vl3"
+    #
+    # width=256
+    # height=128
+    #
+    # quadtree_depth = 3
+    #
+    # x_offset = 1e-9
+    # lines = np.array([
+    #     [[64 + x_offset, 64-16], [64+x_offset, 64+16]],
+    #     # [[64 + x_offset, 64+32], [64, 64+32 + x_offset]],
+    #     # [[64, 64+32 + x_offset], [64-x_offset, 64+32]],
+    #     [[64-x_offset, 64+16], [64-x_offset, 64-16]],
+    #     # [[width, 0], [0,0]]
+    # ])
 
-    quadtree_depth = 3
+    # filename = "../data/vertical_line/triangle1"
+    #
+    # width = 256
+    # height = 128
+    #
+    # quadtree_depth = 2
+    #
+    # x_offset = 1e-9
+    # lines = np.array([
+    #     [[64 + x_offset, 64 - 16], [64 + x_offset, 64 + 16]],
+    #     [[64 + x_offset, 64 + 16], [48, 64]],
+    #     [[48, 64], [64 + x_offset, 64 - 16]],
+    #     # [[64 + x_offset, 64+32], [64, 64+32 + x_offset]],
+    #     # [[64, 64+32 + x_offset], [64-x_offset, 64+32]],
+    #     # [[width, 0], [0,0]]
+    # ])
 
-    # vertical line
-    x_offset = 1e-9
+    filename = "../data/temperature_exchange/T1"
+
+    width=1
+    height=1
+
+    quadtree_depth = 1
     lines = np.array([
-        [[15 + x_offset, 0], [15+x_offset, 5]],
-        [[15 + x_offset, 5], [15, 5 + x_offset]],
-        [[15, 5 + x_offset], [15-x_offset, 5]],
-        [[15 - x_offset, 5], [15-x_offset, 0]],
-        [[width, 0], [0,0]]
+        [[0,0], [0,height]],
+        [[0,height],[width,height]],
+        [[width,height],[width,0]],
+        [[width,0],[0,0]],
     ])
+
+    # filename = "../data/shear_flow/s2"
+    #
+    # width = .02
+    # height = .01
+    #
+    # quadtree_depth = 1
+    # lines = np.array([
+    #     # [[0, 0], [0, height]],
+    #     [[0, height], [width, height]],
+    #     # [[width, height], [width, 0]],
+    #     [[width, 0], [0, 0]],
+    # ])
+
+
 
     show_degrees=False#True
     show_normals=True

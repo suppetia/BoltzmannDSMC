@@ -29,17 +29,23 @@ def createSubTreeFromImage(root:QuadTreeNode, depth:int, img:np.ndarray):
     return
 
 
-def getPolyApproximation(contour):
-    epsilon = 0.005 * cv2.arcLength(contour, True)  # Tolerance factor
-    approx_contour = cv2.approxPolyDP(contour, epsilon, True)  # Approximate contour
+def getPolyApproximation(contour, closed=True, eps=0.005):
+    if closed:
+        epsilon = eps * cv2.arcLength(contour, True)  # Tolerance factor
+        approx_contour = cv2.approxPolyDP(contour, epsilon, True)  # Approximate contour
+        lines = np.array([[approx_contour[i,0,:], approx_contour[i+1,0,:]] for i in range(len(approx_contour)-1)] + [[approx_contour[-1,0,:], approx_contour[0,0,:]]])
+    else:
+        epsilon = eps * cv2.arcLength(contour, False)  # Tolerance factor
+        approx_contour = cv2.approxPolyDP(contour, epsilon, False)  # Approximate contour
+        lines = np.array([[approx_contour[i, 0, :], approx_contour[i + 1, 0, :]] for i in range(len(approx_contour)-1)])
     # pprint(approx_contour)
 
-    lines = np.array([[approx_contour[i,0,:], approx_contour[i+1,0,:]] for i in range(len(approx_contour)-1)] + [[approx_contour[-1,0,:], approx_contour[0,0,:]]])
+    # lines = np.array([[approx_contour[i,0,:], approx_contour[i+1,0,:]] for i in range(len(approx_contour)-1)] + [[approx_contour[-1,0,:], approx_contour[0,0,:]]])
 
     return lines
 
 
-def simplify_lines(lines, x, y, dx, dy):
+def simplify_lines(lines, x, y, dx, dy, closed_structure=True):
     lines_ = lines.copy()
     new_lines = []
     for i,l in enumerate(lines_):
@@ -58,13 +64,15 @@ def simplify_lines(lines, x, y, dx, dy):
             if len(new_lines) > 0:
                 new_lines[-1][1,:] = l1
             else:
-                lines_[-1][1,:] = l1
+                if closed_structure:
+                    lines_[-1][1,:] = l1
             if not all(l1 == l2):
                 new_lines.append(np.array([l1, l2]))
             if not i == len(lines_)-1: # if not the last point update the next start
                 lines_[i+1][0,:] = l2
             else: # in case of the last line update the beginning of the first line
-                new_lines[0][0,:] = l2
+                if closed_structure:
+                    new_lines[0][0,:] = l2
     return new_lines
 
 
@@ -214,31 +222,46 @@ if __name__ == "__main__":
     # filename = "../data/empty1x1.png"
     # filename = "../data/test_19.png"
     # filename = "../data/soundwaves/soundwaves2.png"
-    # filename = "../data/apollo_cm/cm3.png"
-    filename = "../data/vertical_line/vl1.png"
+    filename = "../data/apollo_cm/cm4.png"
+    filename = "../data/apollo_cm/cm8.png"
+    # filename = "../data/vertical_line/vl1.png"
     # filename = "../data/wing1.png"
+    # filename = "../data/cylinder/c1_b.png"
+    # filename = "../data/cylinder/c5.png"
     img = cv2.imread(filename)
     img = cv2.flip(img, 0)
-    closed_area=False
+    closed_surrounding=False
+    open_structure=False
     depth = 10
     show_degrees=False#True
     show_normals=True
     show_cells=True
-    # rescale_x = 1.
-    # rescale_y = 1.
-    rescale_x = False
-    rescale_y = False
+    rescale_x = 100
+    rescale_y = 100
+    # rescale_x = False
+    # rescale_y = False
+
+    approximate_lines_eps=0.001
+
+    print(img.shape)
 
 
     imgray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    imgray = np.where(imgray > 30, 255, 0).astype(np.uint8)
+    imgray = np.where(imgray > 70, 255, 0).astype(np.uint8)
     print(np.min(imgray))
 
     ret, thresh = cv2.threshold(imgray, 100, 255,0)
 
     contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     img_contours = cv2.drawContours(img, contours, 0, (0,255,0), 1)
     print(len(contours))
+
+    if open_structure:
+        print(contours)
+        # just for the half cylinder
+        contours = (np.append(contours[0][3:],[contours[0][0]], axis=0),)
+        print(contours)
 
 
     x,y = 0.,0.
@@ -265,18 +288,20 @@ if __name__ == "__main__":
 
 
 
-        if closed_area:
+        if closed_surrounding or open_structure:
             contours_ = contours
         else:
             contours_ = contours[1:]
         for c in contours_:
-            poly = getPolyApproximation(c)
+            poly = getPolyApproximation(c, closed=not open_structure, eps=approximate_lines_eps)
+            print(poly)
             col_lines = ax.add_collection(LineCollection(poly, colors="b", linewidths=1))
 
             poly_approx = snap_lines_to_grid(poly, x,y, width*2**(-depth), height*2**(-depth))
-            # pprint(poly_approx)
+            print(poly_approx)
             col_approx_lines = ax.add_collection(LineCollection(poly_approx, colors="darkred", linewidths=1))
-            poly_approx_simplified = simplify_lines(poly_approx, x,y, width*2**(-depth), height*2**(-depth))
+            poly_approx_simplified = simplify_lines(poly_approx, x,y, width*2**(-depth), height*2**(-depth), closed_structure=not open_structure)
+            print(poly_approx_simplified)
             col_approx_simple_lines = ax.add_collection(LineCollection(poly_approx_simplified, colors="green", linewidths=10))
 
             # pprint(poly_approx_simplified)
@@ -334,7 +359,10 @@ if __name__ == "__main__":
 
     # save the contours
     print(np.array(poly_approx_simplified).shape)
+    scaling = rescale_x/width # only works if rescale_x=rescale_y, otherwise everything is disturbed
+    poly_approx_simplified = np.array(poly_approx_simplified) * scaling
     np.save(".".join(filename.split(".")[:-1])+".npy", poly_approx_simplified)
+    print(scaling)
 
     root.to_csv(".".join(filename.split(".")[:-1])+".tree")
     # print(len(root.leafs()))

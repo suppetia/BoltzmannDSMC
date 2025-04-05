@@ -146,8 +146,8 @@ class QuadTreeNode:
 
             for i in range(len(n.contours)):
                 n.contours[i] = np.array(n.contours[i], dtype=np.float64)
-                n.contours[i][0::2] *= scaling_x
-                n.contours[i][1::2] *= scaling_y
+                n.contours[i][0:3:2] *= scaling_x
+                n.contours[i][1:4:2] *= scaling_y
 
 
 

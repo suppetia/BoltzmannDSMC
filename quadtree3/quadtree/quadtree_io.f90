@@ -23,7 +23,7 @@ contains
     type(QuadTreeNode), pointer :: node
     integer(i4) :: i, numParticles, idx1, idx2, num
     real(fp) :: width, height
-    character(len=5) :: datasetName
+    character(len=7) :: datasetName
 
     integer(i4) :: error
 
@@ -73,7 +73,7 @@ contains
         n, rho, p, T, c_sq, c0_x, c0_y, c0_z]
     end do 
 
-    write(datasetName, "(i5.5)") datasetID
+    write(datasetName, "(i7.7)") datasetID
 
     call writeRealMatrixToH5Dataset(filename, datasetName//"_tree", matrix,tree%leafNumber, 12, error)
     deallocate(matrix)
