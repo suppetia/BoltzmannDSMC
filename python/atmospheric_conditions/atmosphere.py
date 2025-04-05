@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 date = np.datetime64("2025-02-24T00:00")
 # geomagnetic_activity=-1 is a storm-time run
-data = pymsis.calculate(date, 0, 0, 100)
+data = pymsis.calculate(date, 0, 0, 35)
 
 # output format:
 # [Total mass density (kg/m3),
@@ -32,7 +32,7 @@ m_N2 = 4.6518e-26
 
 # assume that the air only consists of N_2
 num_particles = data[0,0]/m_N2
-print(num_particles)
+print("num particles in 100km altitude:", num_particles)
 # print(sum(data[0,~np.isnan(data[0,:])][1:-1]))
 
 alts = np.linspace(0,1000, 10000)

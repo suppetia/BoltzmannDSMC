@@ -1,293 +1,239 @@
 module m_quadtree_io
-  use m_quadtree, only: QuadTreeNode, QuadTree, splitNode, initializeQuadTreeNode
-  use m_types, only: pp, dp, i4
+  use m_types, only: fp, i1, i2, i4, i8
+  use m_quadtree, only: QuadTree, QuadTreeNode, cellX, cellY, cellWidth, cellHeight, &
+    NodeStack, initializeStack, deleteStack, push, pop
+  use m_matrix_io, only: writeRealMatrixToH5Dataset, writeReal4TensorToH5Dataset
+  use m_datastructures, only: QuadTreeParameters, initializeCellStats, SimulationParameters, &
+    initializeStatisticsCell, deleteStatisticsCell, CellStats, StatisticsCell
+  use m_util, only: k_B
   implicit none
-
-  ! type :: NodeStack
-  !   integer :: stackSize
-  !
-  !   integer :: topIndex = 0
-  !   type(QuadTreeNode), pointer :: elements(:)
-  !
-  ! end type NodeStack
-
-  type :: StackNode
-    type(QuadTreeNode), pointer :: data
-    type(StackNode), pointer :: next => null()
-  end type StackNode
-
-  type :: NodeStack
-    integer :: topIndex = 0
-    type(StackNode), pointer :: top => null()
-  end type NodeStack
-
 contains
-  
-  subroutine initializeStack(stack, stackSize)
-    type(NodeStack), intent(inout) :: stack
-    integer, intent(in) :: stackSize
 
-    nullify(stack%top)
-
-    ! allocate(stack%elements(stackSize))
-    ! stack%stackSize = stackSize
-    stack%topIndex = 0
-
-  end subroutine initializeStack
-
-  subroutine deleteStack(stack)
-    type(NodeStack), intent(inout) :: stack
-
-    nullify(stack%top)
-
-    ! deallocate(stack%elements)
-    ! stack%stackSize = 0
-    ! stack%topIndex = 0
-  end subroutine deleteStack
-
-  subroutine push(stack, newValue)
-    type(NodeStack), intent(inout) :: stack
-    type(QuadTreeNode), pointer, intent(in) :: newValue
-    type(StackNode), pointer :: newNode
-
-    allocate(newNode)
-    newNode%data => newValue
-    if (associated(stack%top)) then
-      newNode%next => stack%top
-    end if 
-    stack%top => newNode
-
-    ! if (stack%topIndex >= stack%stackSize) then
-    !   print *, "Stack full"
-    !   return
-    ! end if
-
-    stack%topIndex = stack%topIndex + 1
-    ! stack%elements(stack%topIndex) = newValue
-  end subroutine push
-
-  subroutine pop(stack, value)
-    type(NodeStack), intent(inout) :: stack
-    type(QuadTreeNode), pointer, intent(out) :: value
-    type(StackNode), pointer :: tempNode
-
-    if (associated(stack%top)) then
-      value => stack%top%data
-      tempNode => stack%top
-      stack%top => stack%top%next
-      deallocate(tempNode)
-    else
-      nullify(value)
-    end if
-
-    ! if (stack%topIndex <= 0) then
-    !   print *, "Stack empty"
-    !   return
-    ! end if
-
-    ! value => stack%elements(stack%topIndex)
-    stack%topIndex = stack%topIndex - 1
-
-  end subroutine pop
-
-
-  !> create a QuadTree from a matrix
-  !> each node corresponds to a cell
-  !> a cell is split if a value different from 0 is contained and maxDepth was not reached
-  recursive subroutine createTree(root, matrix, maxDepth, maxElementsPerCell, height, width, y, x)
+  subroutine writeQuadTreeToHDF5(tree, simParams, filename, datasetID, writeParticles)
     implicit none
-    type(QuadTreeNode), pointer, intent(inout) :: root
-    integer, intent(in) :: maxDepth, maxElementsPerCell
-    integer(pp), allocatable, intent(in) :: matrix(:,:)
-    real(dp), intent(in) :: width, height, x, y
-    type(QuadTreeNode), pointer :: childNode
+    type(QuadTree), pointer, intent(inout) :: tree
+    type(SimulationParameters), pointer, intent(in) :: simParams
+    character(len=*), intent(in) :: filename
+    integer(i4), intent(in) :: datasetID
+    logical, intent(in) :: writeParticles
 
-    integer :: rowOffset, colOffset
-    ! integer :: i, j
-    real(dp) :: newWidth, newHeight
+    real(fp), pointer, dimension(:,:) :: matrix
+    real(fp), pointer, dimension(:,:,:,:) :: tensor
+    integer(i4), pointer, dimension(:) :: particleStartPosition
+    type(QuadTreeNode), pointer :: node
+    integer(i4) :: i, numParticles, idx1, idx2, num
+    real(fp) :: width, height
+    character(len=7) :: datasetName
 
-    if (.not.ALLOCATED(matrix)) then
-      print *, "invalid matrix"
-      return
-    end if
+    integer(i4) :: error
 
-    if (maxDepth == 1) then
-      call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
-      root%isCollapsable = .false.
-      return
-    end if
-
-
-    !> +1 since arrays start with 1
-    rowOffset = ceiling(y)+1
-    colOffset = ceiling(x)+1
-    newWidth = floor(width)
-    newHeight = floor(height)
-
-    ! print *, height, floor(height)
-    ! print *, y, ceiling(y)
-
-    ! print *, all(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)
-    ! print *, any(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)
-
-    !> if all matrix elements in this cell are > 0, the cell won't be split
-    if (all(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)) then
-      call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
-      return
-
-    !> if a matrix element in this cell is /= 0 split the cell
-    else if (any(matrix(rowOffset:rowOffset + floor(height) - 1, colOffset: colOffset + floor(width) - 1) > 0)) then
-      call splitNode(root)
-      newWidth = width / 2
-      newHeight = height / 2
-      childNode => root%children(1)
-      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x)
-      childNode => root%children(2)
-      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y, x+newWidth)
-      childNode => root%children(3)
-      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x)
-      childNode => root%children(4)
-      call createTree(childNode, matrix, maxDepth-1, maxElementsPerCell, newHeight, newWidth, y+newHeight, x+newWidth)
-    else
-      call initializeQuadTreeNode(root, maxElementsPerCell, x, y, width, height)
-      root%isCollapsable = .false.
-    end if
-
-  end subroutine createTree
-
-  subroutine buildTreeFromMatrix(tree, matrix)
-    implicit none
-
-    type(QuadTree), intent(inout) :: tree
-    integer(pp), allocatable, dimension(:,:), intent(in) :: matrix
-
-    call createTree(tree%root, matrix, tree%maxDepth, tree%maxElementsPerCell,&
-      real(size(matrix, 1), dp), real(size(matrix, 2), dp), 0._dp, 0._dp)
-
-  end subroutine buildTreeFromMatrix
+    real(fp) :: n !> particle density
+    real(fp) :: rho !> mass density
+    real(fp) :: c0_x, c0_y, c0_z !> mean velocity components
+    real(fp) :: cx_sq, cy_sq, cz_sq !> mean squared relative velocity components
+    real(fp) :: c_sq !> mean squared relative velocity (relative = c - c_mean)
+    real(fp) :: p !> pressure
+    real(fp) :: T !> translational temperature
 
 
-  recursive subroutine findLeaves(root, stack)
-    implicit none
-    type(QuadTreeNode), pointer, intent(in) :: root
-    type(NodeStack), intent(inout) :: stack
+    width = tree%treeParams%width
+    height = tree%treeParams%height
+    allocate(matrix(12, tree%leafNumber))
+    numParticles = 0
+    allocate(particleStartPosition(tree%leafNumber))
+    particleStartPosition = 1
+    do i = 1, tree%leafNumber
+      num = tree%particleNumbers(i)
+      idx1 = tree%particleStartIndices(i)
+      numParticles = numParticles + num
+      particleStartPosition(i+1:) = particleStartPosition(i+1:) + num
+      node => tree%leafs(i)%node
 
-    integer :: i
+      !> calculate the node stats
+      n = num / (simParams%V_c * cellWidth(node) * cellHeight(node)) * simParams%F_N
+      !> TODO: update using the particle types
+      rho = simParams%m(1) * n
+      
+      !> calculate the mean velocity components
+      c0_x = sum(tree%particles(idx1:idx1+num-1, 3)) / num
+      c0_y = sum(tree%particles(idx1:idx1+num-1, 4)) / num
+      c0_z = sum(tree%particles(idx1:idx1+num-1, 5)) / num
+      !> calculate the mean relative velocities
+      cx_sq = sum((tree%particles(idx1:idx1+num-1, 3)-c0_x) ** 2)/num
+      cy_sq = sum((tree%particles(idx1:idx1+num-1, 4)-c0_y) ** 2)/num
+      cz_sq = sum((tree%particles(idx1:idx1+num-1, 5)-c0_z) ** 2)/num
+      
+      c_sq = cx_sq + cy_sq + cz_sq
+      p = rho / 3 * c_sq
+      !> translational temperature 3/2 k * T_tr = 1/2 m * \overbar{c^2}
+      T = simParams%m(1) / k_B * c_sq / 3 
+      
 
-    if (root%numberOfElements < 0) then
-      do i=1,4
-        call findLeaves(root%children(i), stack)
+      matrix(:, i) = [cellX(node)*width, cellY(node)*height, cellWidth(node)*width, cellHeight(node)*height, &
+        n, rho, p, T, c_sq, c0_x, c0_y, c0_z]
+    end do 
+
+    write(datasetName, "(i7.7)") datasetID
+
+    call writeRealMatrixToH5Dataset(filename, datasetName//"_tree", matrix,tree%leafNumber, 12, error)
+    deallocate(matrix)
+
+    !> store the data from the statistics cells
+    call createTensorFromStatisticsCells(tree, tensor)
+    call writeReal4TensorToH5Dataset(filename, datasetName//"_stats", tensor, &
+      [tree%treeParams%numParticleSpecies+1, 8, int(tree%treeParams%numStatisticsCellRows), &
+       int(tree%treeParams%numStatisticsCellColumns)], &
+      error)
+    deallocate(tensor)
+
+    if (writeParticles) then
+      !> write the particle matrix to the file
+      allocate(matrix(numParticles,5))
+      !> TODO: can be parallelized
+      !$OMP PARALLEL DO private(i,num,idx1,idx2) shared(matrix, tree)
+      do i = 1, tree%leafNumber
+        num = tree%particleNumbers(i)
+        idx1 = tree%particleStartIndices(i)
+        idx2 = particleStartPosition(i)
+        matrix(idx2:idx2+num-1, :) = tree%particles(idx1:idx1+num-1, :)
       end do
-    else
-      ! if (ASSOCIATED(stack%top)) then
-      ! print *, stack%top%data%numberOfElements
-      ! end if
-      call push(stack, root)
-    end if
-  end subroutine findLeaves
+      !$OMP END PARALLEL DO
+      
+      call writeRealMatrixToH5Dataset(filename, datasetName//"_particles", matrix, 5, numParticles, error)
+      deallocate(matrix)
+    end if 
+    deallocate(particleStartPosition)
+  end subroutine writeQuadTreeToHDF5 
 
-  subroutine getLeafCells(tree, arrLeaves, numLeaves)
+
+  subroutine createTreeFromFile(tree, params, filename)
     implicit none
-    type(QuadTree), intent(in) :: tree
-    real(dp), dimension(:,:), allocatable, intent(out) :: arrLeaves
-    integer(i4), intent(out) :: numLeaves
+    type(QuadTree), pointer, intent(out) :: tree
+    type(QuadTreeParameters), pointer, intent(inout) :: params
+    character(len=*), intent(in) :: filename
 
-    type(QuadTreeNode), pointer :: n
     type(NodeStack) :: stack
+    type(QuadTreeNode), pointer :: n, parent
+    integer(i4) :: io, ioStatus, level, maxLevel
+    integer(i4) :: i,j,k, nRows, nLeafs
 
-    integer(i4) :: i
+    integer(i8) :: cellID
+    integer(i1) :: numberOfContours, isLeaf
+    real(fp) :: width, height
+    type(CellStats), pointer :: stats
 
-    call initializeStack(stack, size(arrLeaves, 1))
+    io = 10
+    !> open the file for reading
+    open(unit=io, file=filename, status='old', action="read", iostat=ioStatus)
 
-    !> find all leaf nodes and store them in the stack
-    call findLeaves(tree%root, stack)
+    read(io, *, iostat=ioStatus) nRows, width, height
 
-    numLeaves = stack%topIndex
+    params%width = width
+    params%height = height
 
-    !> retrieve the information how many elements per cell are stored and allocate the cellMatrix
-    allocate(arrLeaves(numLeaves, 5+4*tree%maxElementsPerCell))
+    !> initialize the first part of the tree
+    allocate(tree)
+    allocate(tree%root)
+    tree%treeParams => params
 
-    do i = 1, numLeaves
+    call initializeStack(stack)
+
+    do k = 1, nRows
+      read(io, *) cellID, isLeaf, numberOfContours
+
+      !> if the file end is reached
+      if (ioStatus /= 0) then
+        exit
+      end if 
+
+      maxLevel = shiftr(cellID, 58) - 1
+      if (maxLevel == -1) then !> if the line describes the root
+        n => tree%root
+      else
+        parent => tree%root
+        do level = 1, maxLevel
+          parent => parent%children(ibits(cellID, 2*(level-1), 2) + 1)
+        end do
+        n => parent%children(ibits(cellID, 2*(maxLevel), 2) + 1)
+        n%parent => parent
+      end if 
+      n%cellID = cellID
+      n%isCollapsable = .false.
+      if (isLeaf == 0) then
+        allocate(n%children(4))
+      else
+        call push(stack, n)
+        if (numberOfContours > 0) then
+          allocate(n%structures(6, numberOfContours))
+          read(io, *) ((n%structures(i,j), i=1,6), j=1, numberOfContours)
+        end if 
+        call initializeCellStats(n%stats, tree%treeParams)
+      end if 
+    end do  
+    close(io)
+
+    !> allocate the tree array belonging to the leafs
+    nLeafs = stack%topIndex
+    tree%leafNumber = nLeafs
+    allocate(tree%leafs(nLeafs))
+    allocate(tree%structures(nLeafs))
+    allocate(tree%particleNumbers(nLeafs))
+    tree%particleNumbers = 0
+    allocate(tree%particleStartIndices(nLeafs))
+    allocate(tree%particles(params%elementChunkSize * nLeafs, 5))
+    allocate(tree%particleTypes(params%elementChunkSize * nLeafs))
+    do k = 1,nLeafs 
       call pop(stack, n)
-      arrLeaves(i, 1:5) = [n%x, n%y, n%width, n%height, real(n%numberOfElements, dp)]
-      arrLeaves(i, 6:) = n%elements(:)
-    end do
-
+      tree%leafs(k)%node => n
+      n%nodeIdx = k
+      if (associated(n%structures)) then
+        tree%structures(k)%structures => n%structures
+        tree%structures(k)%numStructures = size(n%structures,2)
+      end if 
+      tree%particleStartIndices(k) = 1 + (k-1)*params%elementChunkSize
+    end do 
     call deleteStack(stack)
 
-  end subroutine getLeafCells
+    !> initialize the statistics cell array
+    allocate(tree%statisticsCells(params%numStatisticsCellRows,params%numStatisticsCellColumns))
+    do i = 1_i2, params%numStatisticsCellRows
+      do j = 1_i2, params%numStatisticsCellColumns
+        call initializeStatisticsCell(tree%statisticsCells(i,j), params)
+      end do 
+    end do 
+    
+  end subroutine createTreeFromFile 
 
 
+  subroutine createTensorFromStatisticsCells(tree, tensor)
+    implicit none
+    type(QuadTree), pointer, intent(in) :: tree
+    real(fp), dimension(:,:,:,:), pointer, intent(inout) :: tensor
 
-  !> plotting does not work accordingly with fractional height/width
-  subroutine printQuadTree(tree, matrix)
-    type(QuadTree), intent(in) :: tree
-    integer(pp), allocatable, intent(in) :: matrix(:,:)
+    type(StatisticsCell), pointer :: stats
+    integer(i2) :: i,j,nrows,ncols
 
-    ! integer :: x,y, width, height, layer
-    logical, allocatable :: gridMatrix(:, :, :)
-    integer :: i,j
+    nrows = tree%treeParams%numStatisticsCellRows
+    ncols = tree%treeParams%numStatisticsCellColumns
 
-    type(QuadTreeNode), pointer :: n
-    type(NodeStack) :: childrenStack
-
-    call initializeStack(childrenStack, 1000) !> use a reasonable heuristic here
-
-    call findLeaves(tree%root, childrenStack)
-
-    allocate(gridMatrix(size(matrix, 1), size(matrix, 2), 2))
-
-    gridMatrix = .false. !> initialize all values false
-
-
-    do while (childrenStack%topIndex > 0)
-      call pop(childrenStack, n)
-
-      ! print *, n%x, n%y, n%width, n%height
-
-      !> set upper border
-      gridMatrix(ceiling(n%y), ceiling(n%x) : ceiling(n%x)+floor(n%width)-1, 1) = .true.
-      !> set left border
-      gridMatrix(ceiling(n%y) : ceiling(n%y)+floor(n%height)-1, ceiling(n%x), 2) = .true.
+    allocate(tensor(tree%treeParams%numParticleSpecies+1, 8, nrows, ncols))
+    
+    do i = 1_i2, ncols
+      do j = 1_i2, nrows
+        stats => tree%statisticsCells(j,i)
+        tensor(:,1,j,i) = real(stats%numParticles%average) 
+        tensor(:,2,j,i) = stats%n%average
+        tensor(:,3,j,i) = stats%rho%average
+        tensor(:,4,j,i) = stats%cx_0%average
+        tensor(:,5,j,i) = stats%cy_0%average
+        tensor(:,6,j,i) = stats%cz_0%average
+        tensor(:,7,j,i) = stats%p%average
+        tensor(:,8,j,i) = stats%T%average
+      end do 
     end do
 
-    !> display the quadtree structure around the data matrix
-    do i=1, size(matrix, 1)
-      write(*, '(A1)', advance="no") '|'
-      do j=1, size(matrix, 2)
-        if (gridMatrix(i, j, 1)) then
-          write(*, '(A3)', advance="no") '---'
-        else
-          write(*, '(A3)', advance="no") '   '
-        end if 
-        if (j == size(matrix, 2)) then
-          exit
-        end if
-        write(*, '(A1)', advance="no") '-'
-      end do
-      write(*, '(A1)') '|'
-      do j=1, size(matrix, 2)
-        if (gridMatrix(i, j, 2)) then
-          write(*, '(A1)', advance="no") '|'
-        else
-          write(*, '(A1)', advance="no") ' '
-        end if
-        write(*, '(1x,I1,1x)', advance="no") matrix(i, j)
-      end do
-      write(*, '(A1)') '|'
-    end do
-    write(*, '(A1)', advance="no") '|'
-    do j=1, size(matrix, 2)-1
-      write(*, '(A4)', advance="no") '----'
-    end do
-    write(*, '(A4)') '---|'
-
-    deallocate(gridMatrix)
-    call deleteStack(childrenStack)
-
-  end subroutine printQuadTree
+    
+  end subroutine createTensorFromStatisticsCells 
 
 
-
-end module m_quadtree_io
-
+end module m_quadtree_io 
